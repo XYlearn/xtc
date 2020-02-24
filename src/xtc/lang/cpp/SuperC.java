@@ -28,7 +28,6 @@ import java.io.StringReader;
 import java.io.OutputStreamWriter;
 import java.io.IOException;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Arrays;
 import java.util.LinkedList;
@@ -38,7 +37,6 @@ import java.util.IdentityHashMap;
 import java.util.HashSet;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.Set;
 
 import xtc.lang.cpp.Syntax.Kind;
 import xtc.lang.cpp.Syntax.LanguageTag;
@@ -53,8 +51,6 @@ import xtc.lang.cpp.Syntax.Error;
 import xtc.lang.cpp.Syntax.ErrorType;
 
 import xtc.lang.cpp.PresenceConditionManager.PresenceCondition;
-
-import xtc.lang.cpp.CContext.SymbolTable.STField;
 
 import xtc.tree.Node;
 import xtc.tree.GNode;
@@ -72,19 +68,11 @@ import xtc.parser.ParseException;
 
 import net.sf.javabdd.BDD;
 
-import org.sat4j.core.VecInt;
-import org.sat4j.minisat.SolverFactory;
-import org.sat4j.specs.ContradictionException;
-import org.sat4j.specs.IProblem;
-import org.sat4j.specs.ISolver;
-import org.sat4j.specs.TimeoutException;
-import org.sat4j.tools.ModelIterator;
-
 /**
  * The SuperC configuration-preserving preprocessor and parsing.
  *
  * @author Paul Gazzillo
- * @version $Revision: 1.130 $
+ * @version $Revision: 1.108 $
  */
 public class SuperC extends Tool {
   /** The user defined include paths */
@@ -99,11 +87,15 @@ public class SuperC extends Tool {
   /** Command-line macros and includes */
   StringReader commandline;
 
+  CParsingContext initialParsingContext;
+
   /** Preprocessor support for token-creation. */
   private final static TokenCreator tokenCreator = new CTokenCreator();
 
   /** Simplify nested conditionals in preprocessor output. */
   private final static boolean SIMPLIFY_NESTED_CONDITIONALS = true;
+
+  protected PresenceConditionManager presenceConditionManager;
 
   /** Create a new tool. */
   public SuperC() { /* Nothing to do. */ }
@@ -117,6 +109,9 @@ public class SuperC extends Tool {
     return "SuperC";
   }
 
+  public CParsingContext getParsingContext() {
+    return initialParsingContext;
+  }
 
   /**
    * Return a copy of the Constants used.
@@ -131,8 +126,8 @@ public class SuperC extends Tool {
 
   public String getExplanation() {
     return
-      "By default, SuperC performs all optimizations besides " +
-      "platoffOrdering.  If one or more " +
+      "By default, SuperC performs all optimizations besides the " +
+      "If one or more " +
       "individual optimizations are specified as command line flags, all " +
       "other optimizations are automatically disabled.";
   }
@@ -163,11 +158,10 @@ public class SuperC extends Tool {
            "includes (-include).  Useful for testing the preprocessor.").
       word("mandatory", "mandatory", false,
            "Include the given header file even if nocommandline is on.").
-      word("restrictConfigToPrefix", "restrictConfigToPrefix", false,
-           "Assume non-config free macros are false when used like "
-           + "configuration variables, but keep them free in the macro table").
-      word("restrictFreeToPrefix", "restrictFreeToPrefix", false,
+      word("TypeChef-x", "TypeChef-x", false,
            "Restricts free macros to those that have the given prefix").
+      word("ignHeader", "ignHeader", true,
+          "Ignore a header file to prevent unhandlable error").
 
       // SuperC component selection.
       bool("E", "E", false,
@@ -226,28 +220,6 @@ public class SuperC extends Tool {
            + "This protects against subparser exponential explosion.  An "
            + "error message will be reported.").
 
-      // Type checking and analysis
-      bool("checkers", "checkers", false,
-           "Turn on semantic checkers.").
-      word("featureModel", "featureModel", false,
-           "Specify a feature model to use when finding satisfiable bugs.").
-      word("modelAssumptions", "modelAssumptions", false,
-           "Specify model assumptions to feed the sat solver,e.g., "
-           + "unselectable config vars.").
-      bool("symbolTable", "symbolTable", false,
-           "Print the symbolTable.").
-      bool("functionAnalysis", "functionAnalysis", false,
-           "Print function definitions, calls, and unresolved calls.  Function "
-           + "definitions conditions are already negated for easier bug-finding."). 
-      bool("printErrorConditions", "printErrorConditions", false,
-           "Print error directive presence conditions, negated for easier use.").
-      word("extraConstraints", "extraConstraints", false,
-           "Add extra constraints to add to the featureModel.  One per line in "
-           + "CNF-style format, e.g., from printErrorConditions.").
-      bool("keepErrors", "keepErrors", false,
-           "Pass preprocessor error tokens to the parser.  Makes for more "
-           + "specific presence conditions.").
-
       // Statistics, analyses, and timing.
       bool("preprocessorStatistics", "statisticsPreprocessor", false,
            "Dynamic analysis of the preprocessor.").
@@ -273,12 +245,6 @@ public class SuperC extends Tool {
            "(3) parser, preprocessor and lexer.").
       bool("presenceConditions", "presenceConditions", false,
            "Show presence conditions for each static conditional.").
-      word("headerChain", "headerChain", true,
-           "Find, if any, the chain of includes to reach the given header.").
-      bool("conditionConfigs", "conditionConfigs", false,
-           "Show configs for each static conditional.").
-      bool("conditionGranularity", "conditionGranularity", false,
-           "Show configs for each static conditional.").
 
       // Validation
       bool("checkExpressionParser", "checkExpressionParser", false,
@@ -303,6 +269,8 @@ public class SuperC extends Tool {
         "Show scope changes and identifier bindings.").*/
       /*bool("traceIncludes", "traceInclude", false,
         "Show every header entrance and exit.").*/
+      bool("ignoreErrors", "ignoreErrors", false,
+           "Ignore errors during parsing").
       bool("showErrors", "showErrors", false,
            "Emit preprocessing and parsing errors to standard err.").
       bool("showAccepts", "showAccepts", false,
@@ -426,6 +394,13 @@ public class SuperC extends Tool {
       }
     }
 
+    for (Object o: runtime.getList("ignHeader")) {
+      if (o instanceof String) {
+        String s = (String) o;
+        Preprocessor.ignoreHeader(s);
+      }
+    }
+
     // Make one large file for command-line/builtin stuff.
     StringBuilder commandlinesb;
 
@@ -500,7 +475,6 @@ public class SuperC extends Tool {
   public Node parse(Reader in, File file) throws IOException, ParseException {
     HeaderFileManager fileManager;
     MacroTable macroTable;
-    PresenceConditionManager presenceConditionManager;
     ExpressionParser expressionParser;
     ConditionEvaluator conditionEvaluator;
     Iterator<Syntax> preprocessor;
@@ -567,6 +541,9 @@ public class SuperC extends Tool {
     macroTable
       .getConfigurationVariables(runtime.test("configurationVariables"));
     macroTable.getHeaderGuards(runtime.test("headerGuards"));
+    if (null != runtime.getString("TypeChef-x")) {
+      macroTable.restrictPrefix(runtime.getString("TypeChef-x"));
+    }
     presenceConditionManager = new PresenceConditionManager();
     if (runtime.test("checkExpressionParser")) {
       expressionParser = ExpressionParser.comparator(presenceConditionManager);
@@ -577,15 +554,9 @@ public class SuperC extends Tool {
     conditionEvaluator = new ConditionEvaluator(expressionParser,
                                                 presenceConditionManager,
                                                 macroTable);
-    if (null != runtime.getString("restrictFreeToPrefix")) {
-      macroTable.restrictPrefix(runtime.getString("restrictFreeToPrefix"));
-      conditionEvaluator.restrictPrefix(runtime.getString("restrictFreeToPrefix"));
-    }
-
-    if (null != runtime.getString("restrictConfigToPrefix")) {
-      // let macros be free!  only restrict them when encountered in a
-      // conditional
-      conditionEvaluator.restrictPrefix(runtime.getString("restrictConfigToPrefix"));
+    if (null != runtime.getString("TypeChef-x")) {
+      String prefix = runtime.getString("TypeChef-x");
+      conditionEvaluator.registerConfigurationFilter((parameter) -> parameter.startsWith(prefix));
     }
 
     if (null != commandline) {
@@ -634,16 +605,6 @@ public class SuperC extends Tool {
     fileManager.showErrors(runtime.test("showErrors"));
     fileManager.doTiming(runtime.test("time"));
 
-    if (null != runtime.getList("headerChain")) {
-      List<String> h = new LinkedList<String>();
-      for (Object o : runtime.getList("headerChain")) {
-        if (o instanceof String) {
-          h.add((String) o);
-        }
-      }
-      fileManager.showHeaderChains(h);
-    }
-
     preprocessor = new Preprocessor(fileManager,
                                     macroTable,
                                     presenceConditionManager,
@@ -656,15 +617,6 @@ public class SuperC extends Tool {
       .showErrors(runtime.test("showErrors"));
     ((Preprocessor) preprocessor)
       .showPresenceConditions(runtime.test("presenceConditions"));
-    ((Preprocessor) preprocessor)
-      .showConditionConfigs(runtime.test("conditionConfigs"));
-
-    List<PresenceCondition> printConstraints = ((Preprocessor) preprocessor)
-      .printErrorConditions(runtime.test("printErrorConditions"));
-
-    List<String> errorConstraints = new ArrayList<String>();
-    ((Preprocessor) preprocessor)
-      .saveErrorConstraints(errorConstraints);
 
     if (runtime.test("time")) {
       preprocessor = new StreamTimer<Syntax>(preprocessor, preprocessorTimer);
@@ -677,17 +629,17 @@ public class SuperC extends Tool {
 
       // Initialize a parser to use it's follow-set method and ordered
       // syntax class.
-      CContext initialParsingContext = new CContext();
+      initialParsingContext = new CParsingContext();
       initialParsingContext
         .collectStatistics(runtime.test("statisticsLanguage"));
-      CActions actions = CActions.getInstance();
+      CSemanticActions actions = CSemanticActions.getInstance();
       actions.collectStatistics(runtime.test("statisticsLanguage"));
       ForkMergeParser parser
         = new ForkMergeParser(CParseTables.getInstance(),
-                              CValues.getInstance(), actions,
+                              CSemanticValues.getInstance(), actions,
                               initialParsingContext, preprocessor,
                               presenceConditionManager);
-      initialParsingContext.free();
+//      initialParsingContext.free();
 
       // Initialize the the token stream.  Only pass ordinary tokens
       // and conditionals to the follow-set.
@@ -867,7 +819,7 @@ public class SuperC extends Tool {
       Object translationUnit;
       
       // Only pass ordinary tokens and conditionals to the parser.
-      preprocessor = new TokenFilter(preprocessor, runtime.test("keepErrors"));
+      preprocessor = new TokenFilter(preprocessor);
 
       // Create a new semantic values class for C.
       SemanticValues semanticValues;
@@ -890,7 +842,7 @@ public class SuperC extends Tool {
         trackedProductions.add("AssemblyDefinition");
         trackedProductions.add("EmptyDefinition");
 
-        semanticValues = new CValues() {
+        semanticValues = new CSemanticValues() {
             public Object getValue(int id, String name, Pair<Object> values) {
               Object value = super.getValue(id, name, values);
 
@@ -907,132 +859,15 @@ public class SuperC extends Tool {
             }
           };
       } else {
-        semanticValues = CValues.getInstance();
+        semanticValues = CSemanticValues.getInstance();
       }
-
-      CActions actions = CActions.getInstance();
+      
+      CSemanticActions actions = CSemanticActions.getInstance();
       actions.collectStatistics(runtime.test("statisticsLanguage"));
-      actions.enableCheckers(runtime.test("checkers"), errorConstraints);
-      if (runtime.test("functionAnalysis")) {
-        actions.enableFunctionAnalysis();
-      }
-      if (runtime.test("checkers") && runtime.getString("featureModel") != null) {
-        // convert kconfig model to clauses for sat solver
-        Clauses clauses = new Clauses();
 
-        {
-          BufferedReader br =
-            new BufferedReader(new FileReader(runtime.getString("featureModel")));
-          String line = br.readLine();
-          while (null != line) {
-            StringReader reader = new StringReader(line);
-            ExpressionRats clauseParser
-              = new ExpressionRats(reader, "CLAUSE", line.length());
-
-            Result clauseTree;
-            Node tree = null;
-            try {
-              clauseTree = clauseParser.pConstantExpression(0);
-              // tree = (Node) clauseParser.value(clauseTree);
-              if (! clauseTree.hasValue()) {
-                tree = null;
-                System.err.println(clauseParser.format(clauseTree.parseError()));
-              } else {
-                tree = clauseTree.semanticValue();
-              }
-              // System.err.println(tree);
-            } catch (java.io.IOException e ) {
-              e.printStackTrace();
-              throw new RuntimeException("couldn't parse expression");
-            }
-
-            if (null != tree) {
-              clauses.addClause(tree);
-            }
-
-            line = br.readLine();
-          }
-        }
-
-        if (runtime.getString("extraConstraints") != null) {
-          BufferedReader br =
-            new BufferedReader(new FileReader(runtime.getString("extraConstraints")));
-          String line = br.readLine();
-          while (null != line) {
-            if (line.startsWith("extra_constraint ")) {
-              String[] s = line.split(" ");
-              System.err.println(line + s);
-              if (s.length > 1) {
-                System.err.println("adding extra constraint " + s[1]);
-                clauses.addClauses(s[1]);
-              }
-            }
-            line = br.readLine();
-          }
-        }
-
-        List<Integer> assumptions = new ArrayList<Integer>();
-        if (runtime.getString("modelAssumptions") != null) {
-          BufferedReader br =
-            new BufferedReader(new FileReader(runtime.getString("modelAssumptions")));
-          String line = br.readLine();
-
-          // format is one var name per line, ! before it for assume false
-          while (null != line) {
-            int sign = 1;
-            String varname = line;
-            if (line.startsWith("!")) {
-              sign = -1;
-              varname = line.substring(1);
-            }
-            // if (clauses.varExists(varname)) {
-              assumptions.add(sign * clauses.getVarNum(varname));
-            // }
-            line = br.readLine();
-          }
-        }
-        int[] assumpints = new int[assumptions.size()];
-        for (int i = 0; i < assumptions.size(); i++) {
-          assumpints[i] = assumptions.get(i);
-        }
-
-        ISolver solver = SolverFactory.newDefault();
-        solver.newVar(clauses.getNumVars());
-        solver.setExpectedNumberOfClauses(clauses.size());
-
-        for (List<Integer> clause : clauses) {
-          int[] cint = new int[clause.size()];
-          int i = 0;
-          for (Integer val : clause) {
-            cint[i++] = val;
-          }
-          try {
-            solver.addClause(new VecInt(cint));
-          } catch (ContradictionException e) {
-            System.err.println("kconfig model is self-contradictory");
-            System.exit(1);
-          }
-        }
-
-        try {
-          IProblem problem = new ModelIterator(solver);
-          if (problem.isSatisfiable(new VecInt(assumpints))) {
-            System.err.println("kconfig model is satisfiable");
-          } else {
-            System.err.println("kconfig model is not satisfiable");
-            System.exit(1);
-          }
-        } catch (TimeoutException e) {
-          e.printStackTrace();
-          System.exit(1);
-        }
-
-        
-        actions.addClauses(clauses, assumpints);
-      }
-
-      CContext initialParsingContext = new CContext();
-      initialParsingContext.collectStatistics(runtime.test("statisticsLanguage"));
+      initialParsingContext = new CParsingContext();
+      initialParsingContext
+        .collectStatistics(runtime.test("statisticsLanguage"));
 
       parser = new ForkMergeParser(CParseTables.getInstance(), semanticValues,
                                    actions, initialParsingContext,
@@ -1048,9 +883,9 @@ public class SuperC extends Tool {
       parser.setEarlyShift(runtime.test("earlyShift"));
       parser.setFollowSetCaching(! runtime.test("noFollowCaching"));
       parser.collectStatistics(runtime.test("statisticsParser"));
-      parser.conditionGranularity(runtime.test("conditionGranularity"));
       parser.showActions(runtime.test("showActions"));
       parser.showErrors(runtime.test("showErrors"));
+      parser.ignoreErrors(runtime.test("ignoreErrors"));
       parser.showAccepts(runtime.test("showAccepts"));
       parser.showFM(runtime.test("showFM"));
       parser.showLookaheads(runtime.test("showLookaheads"));
@@ -1084,47 +919,7 @@ public class SuperC extends Tool {
         translationUnit = tu;
       }
 
-      if (runtime.test("printErrorConditions")) {
-        PresenceCondition restrictCond = presenceConditionManager.getRestrictCond(false);
-        if (null != printConstraints) {
-          for (PresenceCondition cond : printConstraints) {
-            PresenceCondition restricted = cond.restrict(restrictCond);
-            cond.delRef();
-            System.err.format("extra_constraint %s\n", restricted.toNotCNF());
-            restricted.delRef();
-          }
-        }
-      }
-      if (runtime.test("functionAnalysis")) {
-        PresenceCondition restrictCond = presenceConditionManager.getRestrictCond(false);
-        
-        Set<String> global_fundefs = initialParsingContext.getSymbolTable().getNames(STField.GLOBAL_FUNDEF);
-        Set<String> static_fundefs = initialParsingContext.getSymbolTable().getNames(STField.STATIC_FUNDEF);
-        Set<String> funcalls = actions.getFunctionTable().getNames(STField.FUNCALL);
-        for (String s : global_fundefs) {
-          // global fundef is negated ahead of time
-          PresenceCondition global_fundef_pc = initialParsingContext.symbolPresenceCond(s, STField.GLOBAL_FUNDEF);
-          PresenceCondition global_fundef_pc_restricted = global_fundef_pc.restrict(restrictCond);
-          System.err.println("global_fundef " + s + " " + global_fundef_pc_restricted.toNotCNF());
-          global_fundef_pc_restricted.delRef();
-        }
-        System.err.format("total_funcalls %d\n", funcalls.size());
-        // for (String s : funcalls) {
-        //   System.err.println("funcall " + s);
-        // }
-        funcalls.removeAll(global_fundefs);
-        funcalls.removeAll(static_fundefs);
-        for (String s : funcalls) {
-          PresenceCondition restricted = actions.getFunctionTable().getPresenceCond(s, STField.FUNCALL).restrict(restrictCond);
-          System.err.println("undef_funcall " + s + " " + restricted.toCNF());
-          restricted.delRef();
-        }
-        actions.getFunctionTable().delRef();
-
-        restrictCond.delRef();
-      }
-
-      initialParsingContext.free();
+//      initialParsingContext.free();
 
       if (runtime.test("checkAST")) {
         FileReader ratsReader = new FileReader(file);
@@ -1222,6 +1017,10 @@ public class SuperC extends Tool {
           evaluator = new ConditionEvaluator(ExpressionParser.fromRats(),
                                              presenceConditionManager,
                                              macroTable);
+          if (null != runtime.getString("TypeChef-x")) {
+            String prefix = runtime.getString("TypeChef-x");
+            evaluator.registerConfigurationFilter((parameter) -> parameter.startsWith(prefix));
+          }
         }
 
         configuration = presenceConditionManager.
@@ -1456,7 +1255,7 @@ public class SuperC extends Tool {
 
     return result;
   }
-  
+
   /**
    * Get location of a production given its value.
    *

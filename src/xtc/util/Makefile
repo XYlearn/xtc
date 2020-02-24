@@ -61,7 +61,8 @@ SOURCE = \
 	NestedReader.java \
 	Statistics.java \
 	Throughput.java \
-	Function.java
+	Function.java \
+	NodeUtilities.java
 
 
 JNI_SOURCE =

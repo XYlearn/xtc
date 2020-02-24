@@ -76,9 +76,9 @@ __TYPEOF(getID("__TYPEOF"), "__typeof"),
 __TYPEOF__(getID("__TYPEOF__"), "__typeof__"),
 __VOLATILE(getID("__VOLATILE"), "__volatile"),
 __VOLATILE__(getID("__VOLATILE__"), "__volatile__"),
-__INT128(getID("__INT128"), "__int128"),
 
 IDENTIFIER(getID("IDENTIFIER"), null, true),
+
 INTEGERconstant(getID("INTEGERconstant"), null, false, PreprocessorTag.NUMBER),
 OCTALconstant(getID("OCTALconstant"), null, false, PreprocessorTag.NUMBER),
 HEXconstant(getID("HEXconstant"), null, false, PreprocessorTag.NUMBER),

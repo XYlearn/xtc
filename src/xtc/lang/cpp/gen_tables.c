@@ -93,8 +93,8 @@ int main() {
 # define constructor_entry_table(x)  do { printf("          %s_wrapper.%s,\n", #x, #x); } while (0)
 # define constructor_entry_table_last(x)  do { printf("          %s_wrapper.%s);\n", #x, #x); } while (0)
   constructor_entry_table(yytranslate);
-  /* constructor_entry_table(yyprhs); */
-  /* constructor_entry_table(yyrhs); */
+  constructor_entry_table(yyprhs);
+  constructor_entry_table(yyrhs);
   constructor_entry_table(yytname);
   constructor_entry_table(yytoknum);
   constructor_entry_table(yyr1);
@@ -125,8 +125,8 @@ int main() {
   printf("\n");
 
   print_uint16("yytranslate", yytranslate, YYMAXUTOK);
-  /* print_uint16("yyprhs", yyprhs, YYNRULES); */
-  /* print_int16("yyrhs", yyrhs, yyprhs[YYNRULES] + yyr2[YYNRULES]); */
+  print_uint16("yyprhs", yyprhs, YYNRULES);
+  print_int16("yyrhs", yyrhs, yyprhs[YYNRULES] + yyr2[YYNRULES]);
   print_char("yytname", yytname, YYNTOKENS + YYNNTS - 1);
   print_uint16("yytoknum", yytoknum, YYNTOKENS - 1);
   print_uint16("yyr1", yyr1, YYNRULES);

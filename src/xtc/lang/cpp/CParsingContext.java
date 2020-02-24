@@ -41,10 +41,10 @@ import xtc.lang.cpp.ForkMergeParser.OrderedSyntax;
 import xtc.lang.cpp.ForkMergeParser.Lookahead;
 
 /**
- * This class maintains just enough type context for parsing.
+ * This class implements the generated CActionsBase class.
  *
  * @author Paul Gazzillo
- * @version $Revision: 1.24 $
+ * @version $Revision: 1.23 $
  */
 public class CParsingContext implements ParsingContext {
 
@@ -388,18 +388,45 @@ public class CParsingContext implements ParsingContext {
    * @param ident The identifier.
    * @param typedef Whether its a typedef name or a var name.
    * @param presenceCondition The presence condition.
+   * @param symType The symbol type.
+   * @param signature Function Signature if the symbol is a function.
    */
-  public void bind(String ident, boolean typedef, PresenceCondition presenceCondition) {
+  public void bind(String ident, boolean typedef, PresenceCondition presenceCondition, SymType symType, Signature signature) {
     CParsingContext scope;
-    
+
     if (DEBUG) {
       System.err.println("bind: " + ident + " " + typedef);
     }
 
     scope = this;
     while (scope.reentrant) scope = scope.parent;
-    
-    scope.symtab.add(ident, typedef, presenceCondition);
+
+    scope.symtab.add(ident, typedef, presenceCondition, symType, signature);
+  }
+
+  /**
+   * Bind an identifier to a typedef or var name for a given presence
+   * condition.
+   *
+   * @param ident The identifier.
+   * @param typedef Whether its a typedef name or a var name.
+   * @param presenceCondition The presence condition.
+   * @param symType The symbol type.
+   */
+  public void bind(String ident, boolean typedef, PresenceCondition presenceCondition, SymType symType) {
+    bind(ident, typedef, presenceCondition, symType, null);
+  }
+
+  /**
+   * Bind an identifier to a typedef or var name for a given presence
+   * condition.
+   *
+   * @param ident The identifier.
+   * @param typedef Whether its a typedef name or a var name.
+   * @param presenceCondition The presence condition.
+   */
+  public void bind(String ident, boolean typedef, PresenceCondition presenceCondition) {
+    bind(ident, typedef, presenceCondition, SymType.UNKNOWN, null);
   }
 
   /**
@@ -560,7 +587,7 @@ public class CParsingContext implements ParsingContext {
   }
   
   /** The symbol table that stores a scope's symbol bindings. */
-  private static class SymbolTable {
+  public static class SymbolTable {
 
     /** The symbol table data structure. */
     public HashMap<String, Entry> map;
@@ -595,11 +622,19 @@ public class CParsingContext implements ParsingContext {
         }
       }
     }
-    
+
     public void add(String ident, boolean typedef, PresenceCondition presenceCondition) {
+      add(ident, typedef, presenceCondition, SymType.UNKNOWN, null);
+    }
+
+    public void add(String ident, boolean typedef, PresenceCondition presenceCondition, SymType symType) {
+      add(ident, typedef, presenceCondition, symType, null);
+    }
+    
+    public void add(String ident, boolean typedef, PresenceCondition presenceCondition, SymType symType, Signature signature) {
       if (! map.containsKey(ident)) {
         map.put(ident,
-                new Entry(typedef ? presenceCondition : null, typedef ? null : presenceCondition));
+                new Entry(typedef ? presenceCondition : null, typedef ? null : presenceCondition, symType, signature));
         presenceCondition.addRef();
       }
       else {
@@ -641,7 +676,7 @@ public class CParsingContext implements ParsingContext {
         if (! map.containsKey(str)) {
           Entry e = symtab.map.get(str);
           
-          map.put(str, new Entry(e.trueCondition, e.falseCondition));
+          map.put(str, e.clone());
           
           if (null != e.trueCondition) {
             e.trueCondition.addRef();
@@ -688,12 +723,16 @@ public class CParsingContext implements ParsingContext {
   }
 
   /** An entry in the symbol table. */
-  private static class Entry {
+  public static class Entry {
     /** The presence condition when the symbol is a typedef name. */
     PresenceCondition trueCondition;
 
     /** The presence condition when the symbol is a var name. */
     PresenceCondition falseCondition;
+
+    SymType symType;
+
+    Signature signature;
     
     /** Create a new entry.
      *
@@ -701,9 +740,44 @@ public class CParsingContext implements ParsingContext {
      * @param f The var name presence condition.
      */
     public Entry(PresenceCondition trueCondition, PresenceCondition falseCondition) {
+      this(trueCondition, falseCondition, SymType.UNKNOWN, null);
+    }
+
+    public Entry(PresenceCondition trueCondition, PresenceCondition falseCondition, SymType symType) {
+      this(trueCondition, falseCondition, symType, null);
+    }
+
+    public Entry(PresenceCondition trueCondition, PresenceCondition falseCondition, SymType symType, Signature signature) {
       this.trueCondition = trueCondition;
       this.falseCondition = falseCondition;
+      this.symType = symType;
+      this.signature = signature;
     }
-  }  
+
+    protected Entry clone() {
+      Entry e = new Entry(trueCondition, falseCondition, symType, signature);
+      return e;
+    }
+
+    public Signature getSignature() {
+      return signature;
+    }
+
+    public SymType getSymType() {
+      return symType;
+    }
+  }
+
+  public static class Signature {
+    String[] args;
+
+    public Signature(String[] args) {
+      this.args = args;
+    }
+  }
+
+  public static enum SymType {
+      FUNCTION, VARIABLE, TYPENAME, ENUM, UNKNOWN
+  }
 }
 

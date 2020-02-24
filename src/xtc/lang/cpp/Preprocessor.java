@@ -22,13 +22,7 @@ import java.io.StringReader;
 
 import java.lang.StringBuilder;
 
-import java.util.List;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.Iterator;
-import java.util.HashMap;
-import java.util.Set;
-import java.util.HashSet;
+import java.util.*;
 
 import xtc.lang.cpp.Syntax.Kind;
 import xtc.lang.cpp.Syntax.LanguageTag;
@@ -60,9 +54,10 @@ import net.sf.javabdd.BDD;
  * This class expands macros and processes header files
  *
  * @author Paul Gazzillo
- * @version $Revision: 1.197 $
+ * @version $Revision: 1.190 $
  */
 public class Preprocessor implements Iterator<Syntax> {
+
   /** Don't expand the macro. */
   public static int NO_EXPAND = 0;
 
@@ -126,8 +121,8 @@ public class Preprocessor implements Iterator<Syntax> {
 
   /**
    * Don't return tokens from infeasible branches.  When this is off,
-   * no preprocessing is done in infeasible branches, but their tokens
-   * are still returned.
+   * not preprocessing is done in infeasible branches, but their
+   * tokens are stilled returned.
    */
   final private static boolean EMPTY_INFEASIBLE_BRANCHES = true;
 
@@ -143,6 +138,12 @@ public class Preprocessor implements Iterator<Syntax> {
    * off for now.
    */
   final private static boolean JOIN_ORPHANS = false;
+
+  /**
+   * A set containing the headers should be ignored. Usually they are the headers
+   * that cannot be properly processed
+   */
+  private static Set<String> ignoredHeaders = new HashSet<>();
 
   /**
    * The stream from which the Preprocessor gets tokens and
@@ -185,21 +186,6 @@ public class Preprocessor implements Iterator<Syntax> {
    */
   HashMap<Integer, Integer> printedpc = new HashMap<Integer, Integer>();
 
-  /** Whether to print configs used at each conditional. */
-  private boolean showConditionConfigs = false;
-
-  /** Save error directive constraints. */
-  boolean saveErrorConstraints = false;
-
-  /** Error directive constraints in CNF. */
-  List<String> errorConstraints  = null;
-
-  /** Error directive constraints in CNF. */
-  List<PresenceCondition> printConstraints  = null;
-
-  /** Whether to print error directive conditions. */
-  private boolean printErrorConditions = false;
-
   /** Whether to emit errors to stderr. */
   private boolean showErrors = false;
 
@@ -237,6 +223,14 @@ public class Preprocessor implements Iterator<Syntax> {
   /** An EOF token. */
   private final Syntax EOF;
 
+  /**
+   * Ignore a header file to prevent processing it.
+   * @param header
+   */
+  public static void ignoreHeader(String header) {
+    ignoredHeaders.add(header);
+  }
+
   /** Create a new macro preprocessor */
   public Preprocessor(HeaderFileManager fileManager, MacroTable macroTable,
                       PresenceConditionManager presenceConditionManager,
@@ -273,40 +267,6 @@ public class Preprocessor implements Iterator<Syntax> {
    */
   public void showPresenceConditions(boolean b) {
     showPresenceConditions = b;
-  }
-  
-  /**
-   * Save
-   *
-   * @param list The list to add CNF clauses to.
-   */
-  public void saveErrorConstraints(List<String> errorConstraints) {
-    saveErrorConstraints = true;
-    this.errorConstraints = errorConstraints;
-  }
-  
-  /**
-   * Show configs used at each condition.  Default is off.
-   *
-   * @param b True is on.
-   */
-  public void showConditionConfigs(boolean b) {
-    showConditionConfigs = b;
-  }
-  
-  /**
-   * Print error directive configs.  Default is off.
-   *
-   * @param b True is on.
-   */
-  public List<PresenceCondition> printErrorConditions(boolean b) {
-    printErrorConditions = b;
-    if (printErrorConditions) {
-      this.printConstraints = new ArrayList<PresenceCondition>();
-      return this.printConstraints;
-    } else {
-      return null;
-    }
   }
   
   /**
@@ -419,13 +379,11 @@ public class Preprocessor implements Iterator<Syntax> {
       for (int i = 0; i < block.branches.size(); i++) {
         if (first) {
           serial.add(new Conditional(ConditionalTag.START,
-                                     block.presenceConditions.get(i),
-                                     block.getLocation()));
+                                     block.presenceConditions.get(i)));
           first = false;
         } else {
           serial.add(new Conditional(ConditionalTag.NEXT,
-                                     block.presenceConditions.get(i),
-                                     block.getLocation()));
+                                     block.presenceConditions.get(i)));
         }
         block.presenceConditions.get(i).addRef();
           
@@ -438,9 +396,7 @@ public class Preprocessor implements Iterator<Syntax> {
       }
         
       if (! first) {
-        serial.add(new Conditional(ConditionalTag.END,
-                                   null,
-                                   block.getLocation()));
+        serial.add(new Conditional(ConditionalTag.END, null));
       }
 
       stackOfBuffers.push(new PlainTokenBuffer(serial));
@@ -686,7 +642,7 @@ public class Preprocessor implements Iterator<Syntax> {
           }
         }
       }
-      pastedBlock = new ConditionalBlock(rightBranches, rightPresenceConditions, right.getLocation());
+      pastedBlock = new ConditionalBlock(rightBranches, rightPresenceConditions);
       
     } else if (right.kind() == Kind.LANGUAGE) {
       for (int i = 0; i < leftBranches.size(); i++) {
@@ -725,7 +681,7 @@ public class Preprocessor implements Iterator<Syntax> {
           }
         }
       }
-      pastedBlock = new ConditionalBlock(leftBranches, leftPresenceConditions, left.getLocation());
+      pastedBlock = new ConditionalBlock(leftBranches, leftPresenceConditions);
 
     } else {
       // Take all combinations of paste operations.
@@ -802,7 +758,7 @@ public class Preprocessor implements Iterator<Syntax> {
         } // if (leftBranch.size() > 0)
       } // for each left branch
 
-      pastedBlock = new ConditionalBlock(comboBranches, comboPresenceConditions, left.getLocation());
+      pastedBlock = new ConditionalBlock(comboBranches, comboPresenceConditions);
     }
     
     // Preserve the PASTE_LEFT flag from the right operand on the
@@ -934,8 +890,7 @@ public class Preprocessor implements Iterator<Syntax> {
       stackOfBuffers
         .push(new OneTokenBuffer(new Conditional(ConditionalTag.START,
                                                  presenceConditionManager.new
-                                                 PresenceCondition(false),
-                                                 directive.getLocation())));
+                                                 PresenceCondition(false))));
 
       return new Error(message, false);
 
@@ -951,7 +906,7 @@ public class Preprocessor implements Iterator<Syntax> {
         s++;
       }
 
-      if (preprocessorStatistics || showConditionConfigs) {
+      if (preprocessorStatistics) {
         nestedConditionals.push(1);
       }
 
@@ -965,8 +920,9 @@ public class Preprocessor implements Iterator<Syntax> {
       }
 
       Conditional conditional = new Conditional(ConditionalTag.START,
-                                                presenceConditionManager.reference(),
-                                                directive.getLocation());
+                                                presenceConditionManager.reference());
+
+      conditional.setLocation(directive.getLocation());
 
       return conditional;
     }
@@ -1010,13 +966,7 @@ public class Preprocessor implements Iterator<Syntax> {
     int savePrescanning = prescanning;
     prescanning = 0;
 
-    int startingDepth = stackOfBuffers.size();
-
     stackOfBuffers.push(new PlainTokenBuffer(tokens));
-
-    Set<String> seenConfigs = null;
-
-    if (showConditionConfigs) seenConfigs = new HashSet<String>();
 
     List<Syntax> expanded = new LinkedList<Syntax>();
     while (true) {
@@ -1027,7 +977,7 @@ public class Preprocessor implements Iterator<Syntax> {
       }
       
       expanded.add(syntax);
-
+      
       if (syntax.kind() == Kind.LANGUAGE
           && syntax.getTokenText().equals("defined")) {
         int collect = 1;  // The number of tokens left to collect.
@@ -1096,41 +1046,6 @@ public class Preprocessor implements Iterator<Syntax> {
         if (s.testFlag(EOE)) {
           break;
         }
-      } else /* not a "defined" expression */ {
-        if (showConditionConfigs) {
-          switch (syntax.kind()) {
-          case LANGUAGE:
-            if (syntax.toLanguage().tag().hasName() &&
-                ! syntax.getTokenText().equals("defined")) {
-              String containingMacro = getContainingMacro(stackOfBuffers,
-                                                          startingDepth);
-              // System.err.println("inside macro: " + containingMacro);
-              // System.err.println("token in conditional: " + syntax.getTokenText());
-              seenConfigs.add(syntax.getTokenText());
-            }
-            break;
-          case CONDITIONAL:
-            String containingMacro = getContainingMacro(stackOfBuffers,
-                                                        startingDepth);
-            // System.err.println("inside macro: " + containingMacro);          
-            switch (syntax.toConditional().tag()) {
-            case START:
-              // Fall through.
-            case NEXT:
-              // System.err.println("conditional in conditional: " + syntax.toConditional().presenceCondition().getAllConfigs());          
-              seenConfigs.addAll(syntax.toConditional().presenceCondition().
-                                 getAllConfigs());
-              break;
-
-            case END:
-              break;
-            }
-            break;
-          case CONDITIONAL_BLOCK:
-            System.err.println("CONDITIONAL BLOCK in conditional directive");
-            break;
-          }
-        }
       }
     }
 
@@ -1141,7 +1056,7 @@ public class Preprocessor implements Iterator<Syntax> {
     while (expanded.size() > 0 && expanded.get(0).kind() == Kind.LAYOUT) {
       expanded.remove(0);
     }
-
+    
     // Collect conditionals into conditional blocks.
     PresenceCondition global = presenceConditionManager.reference();
     expanded = buildBlocks(expanded, global);
@@ -1173,9 +1088,7 @@ public class Preprocessor implements Iterator<Syntax> {
         boolean unknown = false;
 
         tokenlist.add(EOF);
-        if (showConditionConfigs) evaluator.setSeenConfigs(seenConfigs);
         BDD bdd = evaluator.evaluate(tokenlist.iterator());
-        if (showConditionConfigs) evaluator.unsetSeenConfigs();
 
         // as a test compare new and old evaluators' outputs
 
@@ -1188,7 +1101,7 @@ public class Preprocessor implements Iterator<Syntax> {
 
       presenceCondition.delRef();
     }
-
+    
     // Take union of each subexpression term.  Use raw BDD operations
     // for efficiency.
     BDD newBdd = presenceConditionManager.getBDDFactory().zero();
@@ -1201,19 +1114,12 @@ public class Preprocessor implements Iterator<Syntax> {
       newBdd = bdd;
     }
     
-    if (preprocessorStatistics || showConditionConfigs) {
-      String configsOpt = "";
-
-      if (showConditionConfigs) {
-        configsOpt = " [" + joinSet(seenConfigs, ",") + "]";
-      }
-
-      System.err.format("conditional %s %s %s %d %d%s\n",
+    if (preprocessorStatistics) {
+      System.err.format("conditional %s %s %s %d %d\n",
                         type, getNestedLocation(),
                         evaluator.sawNonboolean() ? "nonboolean" : "boolean",
                         nestedConditionals.size() - 1,
-                        completed.size(),
-                        configsOpt);
+                        completed.size());
     }
 
     return newBdd;
@@ -1243,8 +1149,7 @@ public class Preprocessor implements Iterator<Syntax> {
       stackOfBuffers
         .push(new OneTokenBuffer(new Conditional(ConditionalTag.START,
                                                  presenceConditionManager.new
-                                                 PresenceCondition(false),
-                                                 directive.getLocation())));
+                                                 PresenceCondition(false))));
 
       return new Error(message, false);
 
@@ -1264,14 +1169,9 @@ public class Preprocessor implements Iterator<Syntax> {
         stackOfBuffers
           .push(new OneTokenBuffer(new Conditional(ConditionalTag.START,
                                                    presenceConditionManager.new
-                                                   PresenceCondition(false),
-                                                   directive.getLocation())));
+                                                   PresenceCondition(false))));
         return new Error(message, false);
       }
-
-      Set<String> seenConfigs = null;
-      if (showConditionConfigs) seenConfigs = new HashSet<String>();
-      if (showConditionConfigs) evaluator.setSeenConfigs(seenConfigs);
 
       BDD bdd
         = evaluator.evaluate(new ThreeTokenBuffer(DEFINED,
@@ -1280,31 +1180,22 @@ public class Preprocessor implements Iterator<Syntax> {
       presenceConditionManager.push();
       presenceConditionManager.enter(bdd);
       
-      if (showConditionConfigs) evaluator.unsetSeenConfigs();
-
       if (showPresenceConditions) {
         printPresenceCondition(directive.getLocation(), "ifdef");
       }
 
-      if (preprocessorStatistics || showConditionConfigs) {
-        String configsOpt = "";
-        
-        if (showConditionConfigs) {
-          configsOpt = " [" + joinSet(seenConfigs, ",") + "]";
-        }
-
-        System.err.format("conditional %s %s %s %d %d%s\n",
+      if (preprocessorStatistics) {
+        System.err.format("conditional %s %s %s %d %d\n",
                           "ifdef", getNestedLocation(),
                           "boolean",
-                          nestedConditionals.size(),
-                          1,
-                          configsOpt);
+                          nestedConditionals.size(), 1);
         nestedConditionals.push(1);
       }
 
       Conditional conditional = new Conditional(ConditionalTag.START,
-                                                presenceConditionManager.reference(),
-                                                directive.getLocation());
+                                                presenceConditionManager.reference());
+
+      conditional.setLocation(directive.getLocation());
 
       return conditional;
     }
@@ -1335,8 +1226,7 @@ public class Preprocessor implements Iterator<Syntax> {
       stackOfBuffers
         .push(new OneTokenBuffer(new Conditional(ConditionalTag.START,
                                                  presenceConditionManager.new
-                                                 PresenceCondition(false),
-                                                 directive.getLocation())));
+                                                 PresenceCondition(false))));
       return new Error(message, false);
 
     } else {
@@ -1354,14 +1244,9 @@ public class Preprocessor implements Iterator<Syntax> {
         stackOfBuffers
           .push(new OneTokenBuffer(new Conditional(ConditionalTag.START,
                                                    presenceConditionManager.new
-                                                   PresenceCondition(false),
-                                                   directive.getLocation())));
+                                                   PresenceCondition(false))));
         return new Error(message, false);
       }
-
-      Set<String> seenConfigs = null;
-      if (showConditionConfigs) seenConfigs = new HashSet<String>();
-      if (showConditionConfigs) evaluator.setSeenConfigs(seenConfigs);
 
       BDD bdd
         = evaluator.evaluate(new ThreeTokenBuffer(DEFINED,
@@ -1372,31 +1257,22 @@ public class Preprocessor implements Iterator<Syntax> {
       presenceConditionManager.enter(bdd.not());
       bdd.free();
 
-      if (showConditionConfigs) evaluator.unsetSeenConfigs();
-
       if (showPresenceConditions) {
         printPresenceCondition(directive.getLocation(), "ifndef");
       }
 
-      if (preprocessorStatistics || showConditionConfigs) {
-        String configsOpt = "";
-        
-        if (showConditionConfigs) {
-          configsOpt = " [" + joinSet(seenConfigs, ",") + "]";
-        }
-
-        System.err.format("conditional %s %s %s %d %d%s\n",
+      if (preprocessorStatistics) {
+        System.err.format("conditional %s %s %s %d %d\n",
                           "ifndef", getNestedLocation(),
                           "boolean",
-                          nestedConditionals.size(),
-                          1,
-                          configsOpt);
+                          nestedConditionals.size(), 1);
         nestedConditionals.push(1);
       }
 
       Conditional conditional = new Conditional(ConditionalTag.START,
-                                                presenceConditionManager.reference(),
-                                                directive.getLocation());
+                                                presenceConditionManager.reference());
+
+      conditional.setLocation(directive.getLocation());
 
       return conditional;
     }
@@ -1427,8 +1303,7 @@ public class Preprocessor implements Iterator<Syntax> {
       stackOfBuffers
         .push(new OneTokenBuffer(new Conditional(ConditionalTag.START,
                                                  presenceConditionManager.new
-                                                 PresenceCondition(false),
-                                                 directive.getLocation())));
+                                                 PresenceCondition(false))));
       return new Error(message, false);
     } else {
       List<Syntax> tokens = new LinkedList<Syntax>();
@@ -1445,7 +1320,7 @@ public class Preprocessor implements Iterator<Syntax> {
       
       presenceConditionManager.enterElse();
       
-      if (preprocessorStatistics || showConditionConfigs) {
+      if (preprocessorStatistics) {
         nestedConditionals.push(nestedConditionals.pop() + 1);
       }
 
@@ -1458,8 +1333,9 @@ public class Preprocessor implements Iterator<Syntax> {
       }
 
       Conditional conditional = new Conditional(ConditionalTag.NEXT,
-                                                presenceConditionManager.reference(),
-                                                directive.getLocation());
+                                                presenceConditionManager.reference());
+
+      conditional.setLocation(directive.getLocation());
 
       return conditional;
     }
@@ -1480,18 +1356,18 @@ public class Preprocessor implements Iterator<Syntax> {
       printPresenceCondition(directive.getLocation(), "else");
     }
 
-    if (preprocessorStatistics || showConditionConfigs) {
+    if (preprocessorStatistics) {
       System.err.format("conditional %s %s %s %d %d\n",
                         "else", getNestedLocation(),
                         "boolean",
-                        nestedConditionals.size() - 1,
-                        1);
+                        nestedConditionals.size() - 1, 1);
       nestedConditionals.push(nestedConditionals.pop() + 1);
     }
 
     Conditional conditional = new Conditional(ConditionalTag.NEXT,
-                                              presenceConditionManager.reference(),
-                                              directive.getLocation());
+                                              presenceConditionManager.reference());
+
+    conditional.setLocation(directive.getLocation());
 
     return conditional;
   }
@@ -1508,7 +1384,7 @@ public class Preprocessor implements Iterator<Syntax> {
     try {
       presenceConditionManager.pop();
 
-      if (preprocessorStatistics || showConditionConfigs) {
+      if (preprocessorStatistics) {
         int breadth = nestedConditionals.pop();
 
         System.err.format("endif %s %s %d\n",
@@ -1521,9 +1397,9 @@ public class Preprocessor implements Iterator<Syntax> {
       throw new RuntimeException("unmatched #endif found");
     }
 
-    Conditional conditional = new Conditional(ConditionalTag.END,
-                                              null,
-                                              directive.getLocation());
+    Conditional conditional = new Conditional(ConditionalTag.END, null);
+
+    conditional.setLocation(directive.getLocation());
 
     return conditional;
   }
@@ -1678,6 +1554,10 @@ public class Preprocessor implements Iterator<Syntax> {
       // It is not a computed header.  Include the file normally.
         
       String headerName = str.substring(1, str.length() - 1);
+
+      if (ignoredHeaders.contains(headerName)) {
+        return Preprocessor.EMPTY;
+      }
 
       Syntax linemarker
         = fileManager.includeHeader(headerName, sysHeader, includeNext,
@@ -2149,23 +2029,6 @@ public class Preprocessor implements Iterator<Syntax> {
       System.err.format("error_directive %s", getNestedLocation());
     }
 
-    if (printErrorConditions || saveErrorConstraints) {
-      PresenceCondition cur = presenceConditionManager.reference();
-      PresenceCondition errorCond = cur.not();
-      cur.delRef();
-      if (printErrorConditions) {
-        // System.err.format("extra_constraint %s\n", errorCond.toCNF());
-        if (null == printConstraints) printConstraints = new ArrayList<PresenceCondition>();
-        // add non-negated constraint
-        printConstraints.add(cur.addRef());
-      }
-      if (saveErrorConstraints) {
-        // save negated constraint
-        errorConstraints.add(errorCond.toCNF());
-      }
-      errorCond.delRef();
-    }
-
     return new Error(directive.getTokenText(), true);
   }
   
@@ -2179,7 +2042,8 @@ public class Preprocessor implements Iterator<Syntax> {
   private Error warningDirective(Directive directive, int s) {
     // Error location 27
     if (showErrors) {
-      warning(directive.getTokenText());
+      Location location = directive.getLocation();
+      warning(String.join(":", location.file, String.valueOf(location.line), directive.getTokenText()));
     }
 
     if (preprocessorStatistics) {
@@ -2375,8 +2239,6 @@ public class Preprocessor implements Iterator<Syntax> {
                                              PresenceCondition presenceCondition) {
     List<List<Syntax>> newBranches = new LinkedList<List<Syntax>>();
     List<PresenceCondition> newPresenceConditions = new LinkedList<PresenceCondition>();
-    Location location = null;
-    if (null != list && list.size() > 0) location = list.get(0).getLocation();
 
     newBranches.add(new LinkedList<Syntax>());
     newPresenceConditions.add(presenceCondition.addRef());
@@ -2387,7 +2249,7 @@ public class Preprocessor implements Iterator<Syntax> {
       hoistConditionalsOriginal(list, newBranches, newPresenceConditions);
     }
 
-    return new ConditionalBlock(newBranches, newPresenceConditions, location);
+    return new ConditionalBlock(newBranches, newPresenceConditions);
   }
 
 
@@ -2683,10 +2545,7 @@ public class Preprocessor implements Iterator<Syntax> {
         lists.add(replacement);
       }
 
-      stackOfBuffers.push(new MultipleExpansionBuffer(name,
-                                                      lists,
-                                                      presenceConditions,
-                                                      token.getLocation()));
+      stackOfBuffers.push(new MultipleExpansionBuffer(name, lists, presenceConditions));
       // Don't free entries since their presenceConditions are reused in the
       // resulting conditional.
     } else {
@@ -3322,13 +3181,9 @@ public class Preprocessor implements Iterator<Syntax> {
         // Put each invocation in a conditional controlled by its
         // presence condition.
         if (0 == i) {
-          hoisted.add(new Conditional(ConditionalTag.START,
-                                      presenceCondition.addRef(),
-                                      token.getLocation()));
+          hoisted.add(new Conditional(ConditionalTag.START, presenceCondition.addRef()));
         } else {
-          hoisted.add(new Conditional(ConditionalTag.NEXT,
-                                      presenceCondition.addRef(),
-                                      token.getLocation()));
+          hoisted.add(new Conditional(ConditionalTag.NEXT, presenceCondition.addRef()));
         }
 
         switch (function.result) {
@@ -3381,14 +3236,11 @@ public class Preprocessor implements Iterator<Syntax> {
                 if (! and.is(currentPresenceCondition)) {
 
                   if (hasNestedConditional) {
-                    hoisted.add(new Conditional(ConditionalTag.END,
-                                                null,
-                                                token.getLocation()));
+                    hoisted.add(new Conditional(ConditionalTag.END, null));
                   }
                   if (! and.is(presenceCondition)) {
                     hoisted.add(new Conditional(ConditionalTag.START,
-                                                and.addRef(),
-                                                token.getLocation()));
+                                                and.addRef()));
                     hasNestedConditional = true;
                   } else {
                     hasNestedConditional = false;
@@ -3439,7 +3291,7 @@ public class Preprocessor implements Iterator<Syntax> {
         }
       }
 
-      hoisted.add(new Conditional(ConditionalTag.END, null, token.getLocation()));
+      hoisted.add(new Conditional(ConditionalTag.END, null));
 
       // Find the presence condition of tokens not in any of the
       // invocations.
@@ -3514,24 +3366,17 @@ public class Preprocessor implements Iterator<Syntax> {
       // (4) Emit any orphan tokens.
       if (orphanTokens.size() > 0) {
         PresenceCondition current = orphanTokens.get(0).presenceCondition;
-        hoisted.add(new Conditional(ConditionalTag.START,
-                                    current.addRef(),
-                                    token.getLocation()));
+        hoisted.add(new Conditional(ConditionalTag.START, current.addRef()));
         for (ConditionalSyntax s : orphanTokens) {
           if (! s.presenceCondition.is(current)) {
             current = s.presenceCondition;
-            hoisted.add(new Conditional(ConditionalTag.END,
-                                        null,
-                                        token.getLocation()));
+            hoisted.add(new Conditional(ConditionalTag.END, null));
             hoisted.add(new Conditional(ConditionalTag.START,
-                                        current.addRef(),
-                                        token.getLocation()));
+                                        current.addRef()));
           }
           hoisted.add(s.syntax);
         }
-        hoisted.add(new Conditional(ConditionalTag.END,
-                                    null,
-                                    token.getLocation()));
+        hoisted.add(new Conditional(ConditionalTag.END, null));
       }
 
       // System.err.println("buffer: " + buffer);
@@ -3746,7 +3591,7 @@ public class Preprocessor implements Iterator<Syntax> {
     List<List<Syntax>> expanded = null;
     List<List<Syntax>> blockArgs = null;
     List<List<Syntax>> stringified = null;
-
+    
     // Expand and stringify arguments, but if they are actually used
     // in some definition.
     for (Entry e : entries) {
@@ -3920,7 +3765,7 @@ public class Preprocessor implements Iterator<Syntax> {
           // The number of arguments does not match the number of
           // formal arguments.
           if (showErrors) {
-            error(message + " at " + location.toString());
+            error(message);
           }
 
           // The GNU preprocessor does not expand the macro.  All it
@@ -4221,14 +4066,10 @@ public class Preprocessor implements Iterator<Syntax> {
       // Push a token buffer for the raw tokens of the invocation if
       // there for object, free, and undefined entries.
       List<Syntax> rawTokens = new LinkedList<Syntax>();
-      rawTokens.add(new Conditional(ConditionalTag.START,
-                                    nonFunction,
-                                    token.getLocation()));
+      rawTokens.add(new Conditional(ConditionalTag.START, nonFunction));
       rawTokens.add(token);
       rawTokens.addAll(buffer);
-      rawTokens.add(new Conditional(ConditionalTag.END,
-                                    null,
-                                    token.getLocation()));
+      rawTokens.add(new Conditional(ConditionalTag.END, null));
       stackOfBuffers.push(new PlainTokenBuffer(rawTokens));
     } else {
       nonFunction.delRef();
@@ -4236,10 +4077,7 @@ public class Preprocessor implements Iterator<Syntax> {
 
     // Push a token buffer with the macro expansion for preprocessing.
     if (needConditional) {
-      stackOfBuffers.push(new MultipleExpansionBuffer(name,
-                                                      lists,
-                                                      presenceConditions,
-                                                      token.getLocation()));
+      stackOfBuffers.push(new MultipleExpansionBuffer(name, lists, presenceConditions));
     } else {
       stackOfBuffers.push(new SingleExpansionBuffer(name, lists.get(0)));
     }
@@ -4296,9 +4134,6 @@ public class Preprocessor implements Iterator<Syntax> {
 
         stringifyHoist(arg, strings, presenceConditions, global);
 
-        Location location = null;
-        if (arg.size() > 0) location = arg.get(0).getLocation();
-
         // Generate the conditional containing the stringified tokens.
         List<Syntax> list = new LinkedList<Syntax>();
         for (int i = 0; i < strings.size(); i++) {
@@ -4307,13 +4142,9 @@ public class Preprocessor implements Iterator<Syntax> {
 
             // Wrap each string individually.  This allows lazy
             // forking to minimize the number of subparsers.
-            list.add(new Conditional(ConditionalTag.START,
-                                     presenceConditions.get(i),
-                                     location));
+            list.add(new Conditional(ConditionalTag.START, presenceConditions.get(i)));
             list.add(tokenCreator.createStringLiteral(str));
-            list.add(new Conditional(ConditionalTag.END,
-                                     null,
-                                     location));
+            list.add(new Conditional(ConditionalTag.END, null));
           }
           else {
             presenceConditions.get(i).delRef();
@@ -4493,9 +4324,7 @@ public class Preprocessor implements Iterator<Syntax> {
 
 
       // Create and return a new instance of a block.
-      ConditionalBlock block = new ConditionalBlock(branches,
-                                                    presenceConditions,
-                                                    location);
+      ConditionalBlock block = new ConditionalBlock(branches, presenceConditions);
       // Copy the flags from the old block to the new.
       for (int i = 0; i < Syntax.MAX_FLAGS; i++) {
         if (start.testFlag(i)) {
@@ -4528,12 +4357,7 @@ public class Preprocessor implements Iterator<Syntax> {
 
     List<Syntax> list = new LinkedList<Syntax>();
 
-    Location location = null;
-    if (tokens.size() > 0) location = tokens.get(0).getLocation();
-
-    list.add(new ConditionalBlock(branches,
-                                  presenceConditions,
-                                  location));
+    list.add(new ConditionalBlock(branches, presenceConditions));
 
     return list;
   }
@@ -5106,27 +4930,21 @@ public class Preprocessor implements Iterator<Syntax> {
     /** The position within an expansion. */
     private int i;
 
-    /** The location of this expansion. */
-    private Location location;
-
     /**
      * Create a new MultipleExpansionBuffer.
      *
      * @param name The name of the macro being expanded.
      * @param lists The expansions of the macro.
      * @param presenceConditions The presence conditions of the expansions.
-     * @param location The location of the expanded token.
      */
     public MultipleExpansionBuffer(String name,
                                    List<List<Syntax>> lists,
-                                   List<PresenceCondition> presenceConditions,
-                                   Location location) {
+                                   List<PresenceCondition> presenceConditions) {
       this.name = name;
       this.lists = lists;
       this.presenceConditions = presenceConditions;
       this.list = -1;
       this.i = 0;
-      this.location = location;
     }
 
     public Syntax next() {
@@ -5134,10 +4952,8 @@ public class Preprocessor implements Iterator<Syntax> {
         list = 0;
         i = 0;
         presenceConditions.get(list).addRef();
-
-        return new Conditional(ConditionalTag.START,
-                               presenceConditions.get(list),
-                               location);
+        
+        return new Conditional(ConditionalTag.START, presenceConditions.get(list));
 
       } else if (list < lists.size()) {
         if (null != lists.get(list) && i < lists.get(list).size()) {
@@ -5149,14 +4965,10 @@ public class Preprocessor implements Iterator<Syntax> {
           if (list < lists.size()) {
             presenceConditions.get(list).addRef();
             
-            return new Conditional(ConditionalTag.NEXT,
-                                   presenceConditions.get(list),
-                                   location);
+            return new Conditional(ConditionalTag.NEXT, presenceConditions.get(list));
 
           } else {
-            return new Conditional(ConditionalTag.END,
-                                   null,
-                                   location);
+            return new Conditional(ConditionalTag.END, null);
           }
         }
 
@@ -5204,67 +5016,15 @@ public class Preprocessor implements Iterator<Syntax> {
     return xtc.Limits.COMPILER_VERSION.indexOf("Apple") >= 0;
   }
 
-  /**
-   * Handle an error.
-   *
-   * @param msg The error message.
-   */
   private void error(String msg) {
     System.err.println("error: " + msg);
   }
 
-  /**
-   * Handle a warning.
-   *
-   * @param msg The warning message.
-   */
   private void warning(String msg) {
     System.err.println("warning: " + msg);
   }
 
   public void remove() {
     throw new UnsupportedOperationException();
-  }
-
-  /**
-   * Find in a stack of token buffers the name of the macro being
-   * expanded if any.
-   *
-   * @param stack The stack of buffers to inspect.
-   * @param depth The maximum depth into the stack to inspect.
-   * @return The containing macro or null if none.
-   */
-  private String getContainingMacro(LinkedList<TokenBuffer> stack, int depth) {
-    String macroName = null;
-
-    // push adds to the front of a linked-list in java.
-    for (int i = 0; i < stack.size() - depth; i++) {
-      if (stack.get(i).hasMacroName()) {
-        macroName = stack.get(i).getMacroName();
-        break;
-      }
-    }
-
-    return macroName;
-  }
-
-  /**
-   * Concatenate all elements of a set separated with a given
-   * delimiter.
-   *
-   * @param set The set to join.
-   * @param delim The delimiter.
-   * @return A string of all elements.
-   */
-  private static <E> String joinSet(Set<E> set, String delim) {
-    String ret = "";
-    String d = "";
-    
-    for (E e : set) {
-      ret += d + e.toString();
-      d = delim;
-    }
-
-    return ret;
   }
 }

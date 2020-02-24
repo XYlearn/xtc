@@ -20,46 +20,21 @@ package xtc.lang.cpp;
 
 import xtc.lang.cpp.ForkMergeParser.Subparser;
 
-/* from expression.prologue */
+public class ExpressionActions extends ExpressionActionsInterface {
+  /** Create a new actions class. */
+  private ExpressionActions() {
+  }
 
-
-
-/**
- * This class is generated from grammar annotations and provides semantic
- * action support.
- */
-public class ExpressionActions implements SemanticActions {
-
-  /** The instance of this class */
+  /** The instance of this class. */
   private static ExpressionActions ref;
 
-  /** Get the instance of this class */
+  /** Get the instance of this class. */
   public static ExpressionActions getInstance() {
     if (null == ref) {
       ref = new ExpressionActions();
     }
     return ref;
   }
-
-  public Object action(int production, Subparser subparser, Object value) {
-    switch (production) {
-    }
-  return value;
-  }
-  public void dispatch(int id, Subparser subparser) {
-    switch(id) {
-    case 145:
-      CheckDefined(subparser);
-      break;
-
-    default:
-      // Do nothing
-      break;
-    }
-  }
-
-  /* from expression.epilogue */
-
 
   public void CheckDefined(Subparser subparser) {
     if (! "defined".equals(subparser.stack.get(2).value.toString())) {

@@ -21,7 +21,7 @@
 # Create a temporary file with a unique name.  Uses the tempfile
 # command if the system has it.
 
-tmpdir=${SUPERC_SCRATCH-/scratch/pcg234/tmp}
+tmpdir="/scratch/pcg234/tmp"
 
 which tempfile >/dev/null 2>&1
 

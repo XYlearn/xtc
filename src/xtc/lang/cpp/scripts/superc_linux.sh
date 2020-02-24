@@ -33,7 +33,7 @@ fi
 
 allArgs=
 timeout=
-while getopts :l:h:p:S:J:G:cPgDekL:wm:h:irvts:bTK:o:d:CAE opt; do
+while getopts :l:h:p:S:J:G:cPgDekL:wm:h:irvts:bTK:o:d:C opt; do
     case $opt in
         l)
             fileList=$OPTARG
@@ -48,7 +48,7 @@ while getopts :l:h:p:S:J:G:cPgDekL:wm:h:irvts:bTK:o:d:CAE opt; do
             allArgs="$allArgs -p \"$OPTARG\""
             ;;
         S)
-            givenSupercArgs="$OPTARG"
+            supercArgs="$OPTARG"
             allArgs="$allArgs -S \"$OPTARG\""
             ;;
         J)
@@ -140,14 +140,6 @@ while getopts :l:h:p:S:J:G:cPgDekL:wm:h:irvts:bTK:o:d:CAE opt; do
             compress=true
             allArgs="$allArgs -C"
             ;;
-        A)
-            configAST=true
-            allArgs="$allArgs -A"
-            ;;
-        E)
-            configE=true
-            allArgs="$allArgs -E"
-            ;;
         \?)
             echo "(`basename $0`)" "Invalid argument: -$OPTARG"
             ;;
@@ -160,11 +152,7 @@ done
 shift $(($OPTIND - 1))
 
 file=$1
-files=(${@})
 
-if [[ ! -z "${verbose}" ]]; then
-    set -x on
-fi
 
 ################################################################################
 ############################## Show Help #######################################
@@ -192,27 +180,21 @@ if [[ ! -z $help || (-z $file && -z $fileList && -z $host && -z $port && -z $ser
     echo "    -G \"args\"        Extra (G)CC preprocessor arguments for -c."
     echo ""
     echo "  OPERATIONS"
+    echo "    -t               (t)est command-line args, but don't run SuperC."
     echo "    -c               (c)ompare SuperC output to configured file."
     echo "    -P               (P)arse the preprocessed file with SuperC."
     echo "    -g               Parse with (g)cc and get timings."
     echo "    -D               (D)ynamic analysis of collected statistics."
-    echo "    -r               Show per-file (r)untimes.  Depends on \"bc\"."
-    echo "    -E               Configure SuperC-preprocessed source with Linux config*"
-    echo "    -A               Configure SuperC-parsed (A)ST with Linux config*"
     echo "    -e               (e)xtract SuperC's kbuild settings."
     echo "    -k               Extract all (k)build configuration information."
     echo "    -L dir           Get (L)inux configuration from dir."
     echo "    -w               (w)rite configuration to -L dir."
     echo "    -m file          (m)asquerade as file to use its configuration."
-    echo "    -K seconds       (K)ill after a timeout.  Depends on \"timeout\"."
-    echo "    -t               (t)est command-line args, but don't run SuperC."
-    echo ""
-    echo "      * Requires configured Linux kernel, e.g., with \"make allyesconfig\""
-    echo ""
-    echo "  DISTRIBUTED OPERATION"
+    echo "    -r               Show per-file (r)untimes.  Depends on \"bc\"."
     echo "    -s servers.txt   Run on slave (s)ervers, not locally."
     echo "    -b               Run as slave, so ignore -s."
     echo "    -T               (T)est slave servers' SuperC installations."
+    echo "    -K seconds       (K)ill after a timeout.  Depends on \"timeout\"."
     echo ""
     echo "  OUTPUT"
     echo "    -o out           Write to out."
@@ -375,10 +357,6 @@ if [ ! -z $file ]; then
     filesToProcess[0]=$file
     length=1
 
-# if [ ! -z $files ]; then
-#     filesToProcess=(${files[@]})
-#     length=${#files[@]}
-
 elif [ ! -z $fileList ]; then
     for file in `cat $fileList`; do
         filesToProcess[length]=$file
@@ -471,14 +449,6 @@ if [ -z "$servers" ]; then
                 obj_file=${file%.*}.o
             fi
 
-            if [[ ! -z "$configE" ]]; then
-                supercArgs="$givenSupercArgs -E"
-            elif [[ ! -z "$configAST" ]]; then
-                supercArgs="$givenSupercArgs -configFile .config -configureExceptions \"$(java xtc.lang.cpp.GCCShunt --emit-exceptions $(superc_linux.sh -k "$config_file" | grep ^configs_all) none)\""
-            else
-                supercArgs="$givenSupercArgs"
-            fi
-            
             if [ ! -z "$configDir" ]; then
                 cacheConfigArgs=$configDir/$config_file.configs_all
                 cacheSuperCArgs=$configDir/$config_file.configs_superc
@@ -608,7 +578,7 @@ if [ -z "$servers" ]; then
                             fi
                         fi
                     else
-                        $timeout "${cmd[@]}" | grep -v "^Resizing node table" > $superc_out
+                        $timeout "${cmd[@]}" > $superc_out
                         if [ $? -eq 124 ]; then
                             echo "killed $file" | tee -a $superc_out
                         fi

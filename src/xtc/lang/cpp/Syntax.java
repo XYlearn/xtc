@@ -24,8 +24,6 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
-import xtc.tree.Location;
-
 /**
  * Support for syntax objects.  This class is not yet used.
  *
@@ -34,7 +32,7 @@ import xtc.tree.Location;
  * preprocessor to control macro expansion.
  *
  * @author Robert Grimm, Paul Gazzillo
- * @version $Revision: 1.36 $
+ * @version $Revision: 1.34 $
  */
 public abstract class Syntax extends xtc.tree.Token {
 
@@ -69,7 +67,7 @@ public abstract class Syntax extends xtc.tree.Token {
   public static final int MAX_FLAGS = 31;
 
   /** The flags. */
-  protected int flags;
+  private int flags;
 
   /** Create a new syntax object. */
   public Syntax() {
@@ -198,17 +196,6 @@ public abstract class Syntax extends xtc.tree.Token {
   public boolean testFlag(int num) {
     final int mask = toMask(num);
     return (flags & mask) == mask;
-  }
-
-  /**
-   * Test flags against given syntax object's.
-   *
-   * @param s The other syntax object.
-   * @return true If the same.
-   * @throws IllegalArgumentException Signals an invalid flag number.
-   */
-  public boolean flagsEqual(Syntax s) {
-    return flags == s.flags;
   }
 
   // --------------------------------------------------------------------------
@@ -538,24 +525,6 @@ public abstract class Syntax extends xtc.tree.Token {
     protected final PresenceCondition presenceCondition;
 
     /**
-     * Create a new conditional token with location.
-     *
-     * @param tag The tag.
-     * @param presenceCondition The presenceCondition.
-     * @param location The location.
-     * @throws IllegalArgumentException Signals that the presenceCondition is
-     *   not null for an end conditional.
-     */
-    public Conditional(ConditionalTag tag, PresenceCondition presenceCondition, Location location) {
-      if (ConditionalTag.END == tag && null != presenceCondition) {
-        throw new IllegalArgumentException("End conditional with presenceCondition");
-      }
-      this.tag = tag;
-      this.presenceCondition = presenceCondition;
-      this.setLocation(location);
-    }
-
-    /**
      * Create a new conditional token.
      *
      * @param tag The tag.
@@ -564,7 +533,11 @@ public abstract class Syntax extends xtc.tree.Token {
      *   not null for an end conditional.
      */
     public Conditional(ConditionalTag tag, PresenceCondition presenceCondition) {
-      this(tag, presenceCondition, null);
+      if (ConditionalTag.END == tag && null != presenceCondition) {
+        throw new IllegalArgumentException("End conditional with presenceCondition");
+      }
+      this.tag = tag;
+      this.presenceCondition = presenceCondition;
     }
 
     private Conditional(Conditional other) {
@@ -574,7 +547,7 @@ public abstract class Syntax extends xtc.tree.Token {
     }
 
     public Conditional copy() {
-      return new Conditional(this.tag, this.presenceCondition, this.getLocation());
+      return new Conditional(this.tag, this.presenceCondition);
     }
 
     public Kind kind() {
@@ -651,19 +624,12 @@ public abstract class Syntax extends xtc.tree.Token {
     List<PresenceCondition> presenceConditions;
     
     public ConditionalBlock(List<List<Syntax>> branches,
-                            List<PresenceCondition> presenceConditions,
-                            Location location) {
+                            List<PresenceCondition> presenceConditions) {
       this.branches = branches;
       this.presenceConditions = presenceConditions;
       for (PresenceCondition presenceCondition : presenceConditions) {
         presenceCondition.addRef();
       }
-      this.setLocation(location);
-    }
-    
-    public ConditionalBlock(List<List<Syntax>> branches,
-                            List<PresenceCondition> presenceConditions) {
-      this(branches, presenceConditions, null);
     }
     
     public ConditionalBlock(ConditionalBlock c) {

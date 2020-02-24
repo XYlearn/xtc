@@ -21,7 +21,6 @@ package xtc.lang.cpp;
 import java.util.Iterator;
 
 import xtc.lang.cpp.Syntax.Kind;
-import xtc.lang.cpp.Syntax.ErrorType;
 
 /**
  * A stream that filters out all tokens except for regular and
@@ -33,67 +32,23 @@ public class TokenFilter implements Iterator<Syntax> {
   /** The stream to read syntax from. */
   Iterator<Syntax> stream;
 
-  /** Whether to keep errors or filter them. */
-  boolean keep_errors;  
-
-  /**
-   * Create a new token filter stream.
-   *
-   * @param stream The stream to filter.
-   * @param keep_errors Whether to keep error tokens or filter them.
-   */
-  public TokenFilter(Iterator<Syntax> stream, boolean keep_errors) {
-    this.stream = stream;
-    this.keep_errors = keep_errors;
-  }
-
   /**
    * Create a new token filter stream.
    *
    * @param stream The stream to filter.
    */
   public TokenFilter(Iterator<Syntax> stream) {
-    this(stream, false);
+    this.stream = stream;
   }
 
   public Syntax next() {
     Syntax syntax = this.stream.next();
-
-    // consume tokens until we get a parseable one
-    while (true) {
-      boolean keep_token;
-      switch (syntax.kind()) {
-      case LANGUAGE:
-      case EOF:
-      case CONDITIONAL:
-        keep_token = true;
-        break;
-      case ERROR:
-        if (keep_errors) {
-          if (syntax.toError().type == ErrorType.FATAL ||
-              syntax.toError().type == ErrorType.ERROR) {
-            keep_token = true;
-            break;
-          }
-        }
-        // fall through
-      default:
-        keep_token = false;
-        break;
-      }
-
-      if (keep_token) {
-        break;
-      }
-
+      
+    while (syntax.kind() != Kind.LANGUAGE
+           && syntax.kind() != Kind.EOF
+           && syntax.kind() != Kind.CONDITIONAL) {
       syntax = this.stream.next();
     }
-
-    // while (syntax.kind() != Kind.LANGUAGE
-    //        && syntax.kind() != Kind.EOF
-    //        && syntax.kind() != Kind.CONDITIONAL) {
-    //   syntax = this.stream.next();
-    // }
 
     return syntax;
   }

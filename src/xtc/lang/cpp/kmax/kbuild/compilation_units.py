@@ -1,21 +1,5 @@
 #!/usr/bin/env python
 
-# Kmax
-# Copyright (C) 2012-2015 Paul Gazzillo
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 # Find all compilation units given a list of directories.
 
 import sys
@@ -26,9 +10,6 @@ import fnmatch
 import argparse
 import subprocess
 import cPickle as pickle
-import time
-
-starting_time = time.time()
 
 def chgext(filename, f, t):
   if filename.endswith(f):
@@ -83,29 +64,12 @@ argparser.add_argument('-c',
                        action="store_true",
                        help="""\
 find corresponding .c files for the compilation units""")
-argparser.add_argument('-C',
-                       '--config-vars',
-                       type=str,
-                       help="""the name of a KConfigData file containing \
-configuration variable data""")
-argparser.add_argument('--no-aggregation',
-                       action="store_true",
-                       help="""\
-only perform Kbuild evaluation, no aggregation and analysis""")
-argparser.add_argument('-g',
-                       '--get-presence-conditions',
-                       action="store_true",
-                       help="""\
-get presence conditions for each compilation units""")
-
 
 args = argparser.parse_args()
 
 if len(args.makefile) == 0:
   argparser.print_help()
   sys.exit(1)
-
-toplevel_dirs = args.makefile
 
 excludes = set()
 if args.excludes_file != None:
@@ -122,7 +86,6 @@ def covering_set(kbuild_dir,        # src directory to process
                  extra_targets,     # updated with extra targets
                  clean_files,       # updated with clean-files units
                  c_file_targets,    # updated with c-files from targets var
-                 composites,        # updated with composites
                  broken):           # updated with kbuild files that
                                     # break kmax
   """Call the covering set program to find the list of compilation
@@ -135,10 +98,10 @@ def covering_set(kbuild_dir,        # src directory to process
 
   covering_set_args = [ "covering_set.py",
                         "-p",
-                        "-Dsrc=" + kbuild_dir,      # drivers/staging/wlags49_h25/, drivers/gpu/drm/nouveau/
                         # TODO default to empty variable
                         # "-Dobj=" + kbuild_dir,    # drivers/scsi/aic7xxx/
                         # "-DKERNELDIR=",           # drivers/staging/wlags49_h25/
+                        # "-Dsrc=",                 # drivers/staging/wlags49_h25/
                         # "-Dlibservices=",         # drivers/staging/tidspbridge/
                         # "-DPWD=",                 # drivers/staging/rts5139/
                         # "-DGCOV=",                # drivers/scsi/lpfc/
@@ -149,12 +112,6 @@ def covering_set(kbuild_dir,        # src directory to process
   if args.define != None:
     for define in args.define:
       covering_set_args.append("-D" + define)
-
-  if args.config_vars:
-    covering_set_args.append("-C" + args.config_vars)
-
-  if args.get_presence_conditions:
-    covering_set_args.append("-g")
 
   covering_set_args.append(kbuild_dir)
 
@@ -177,10 +134,7 @@ def covering_set(kbuild_dir,        # src directory to process
    new_extra_targets,
    new_clean_files,
    new_c_file_targets,
-   new_pending_subdirectories,
-   new_composites,
-   new_unit_pcs,
-   new_subdir_pcs) = pickle.loads(out)
+   new_pending_subdirectories) = pickle.loads(out)
 
   compilation_units.update(new_compilation_units)
   library_units.update(new_library_units)
@@ -189,14 +143,6 @@ def covering_set(kbuild_dir,        # src directory to process
   extra_targets.update(new_extra_targets)
   clean_files.update(new_clean_files)
   c_file_targets.update(new_c_file_targets)
-  composites.update(new_composites)
-
-  if args.get_presence_conditions:
-    # print presence condition information
-    for unit_name, pc in new_unit_pcs:
-      print "unit_pc", unit_name, pc
-    for subdir_name, pc in new_subdir_pcs:
-      print "subdir_pc", subdir_name, pc
 
   return new_pending_subdirectories
 
@@ -208,13 +154,11 @@ unconfigurable_units = set()
 extra_targets = set()
 clean_files = set()
 c_file_targets = set()
-composites = set()
 pending_subdirectories = set()
 broken = set()
 
 # find all compilation_units.  run covering_set.py until no more
 # Kbuild subdirectories are left.
-sys.stderr.write("running covering_set\n")
 pending_subdirectories.update(args.makefile)
 while len(pending_subdirectories) > 0:
   subdirectories.update(pending_subdirectories)
@@ -226,55 +170,20 @@ while len(pending_subdirectories) > 0:
                                              extra_targets,
                                              clean_files,
                                              c_file_targets,
-                                             composites,
                                              broken))
 
-if args.get_presence_conditions:
-  # already printed presence conditions.  don't do anything, so exit
-  exit(1)
-
-if args.no_aggregation:
-  print_set(toplevel_dirs, "toplevel_dirs")  # list of directories started from
-  print_set(subdirectories, "subdirectory")  # subdirectory visited by kbuild
-  print_set(composites, "composites")  # compilation units that are composites
-  print_set(library_units, "library_units")  # library units referenced by kbuild
-  print_set(hostprog_units, "hostprog_units")
-  print_set(unconfigurable_units, "unconfigurable_units")
-  print_set(extra_targets, "extra_targets")
-  print_set(clean_files, "clean_files")
-  print_set(c_file_targets, "c_file_targets")
-  print_set(broken, "broken")
-  print "running_time", time.time() - starting_time
-  exit(0)
-
-sys.stderr.write("aggregating and analyzing covering_set data")
-
-# find all subdirectories with source in them
-used_subdirectory = set()
-for unit in compilation_units:
-  used_subdirectory.add(os.path.dirname(unit))
-
 # find all .c files
-all_c_files = set([])
-for subdir in (subdirectories | used_subdirectory):
-  all_c_files.update([os.path.normpath(x) for x in glob.glob(os.path.join(subdir, "*.c"))])
+all_c_files = set()
+for subdir in subdirectories:
+  all_c_files.update(glob.glob(os.path.join(subdir, "*.c")))
 
 # find all compilation units without a corresponding .c file
 unmatched_units = set()
-asm_compilation_units = set()
 for unit in compilation_units:
   c_file = otoc(unit)
   S_file = otoS(unit)
   if not os.path.isfile(c_file) and not os.path.isfile(S_file):
     unmatched_units.add(c_file)
-  if os.path.isfile(S_file):
-    asm_compilation_units.add(S_file)
-
-# find all asm-offsets.c files, for these are compiled by the root
-# Kbuild file into offsets
-re_offsets_file = re.compile(r'arch/[^/]+/kernel/asm-offsets\.c')
-
-offsets_files = [ x for x in all_c_files if re_offsets_file.match(x) ]
 
 # find all .c files without a corresponding compilation unit, starting
 # with all c files
@@ -303,10 +212,6 @@ unidentified_c_files.difference_update([hostprog_otoc(filename)
 # remove unconfigurable compilation units
 unidentified_c_files.difference_update([filename
                                      for filename in clean_files])
-
-# remove asm-offsets.c files
-unidentified_c_files.difference_update([filename
-                                        for filename in offsets_files])
 
 # get source files that include c files
 included_c_files = set()
@@ -409,23 +314,16 @@ if args.excludes_file != None:
   with open(args.excludes_file, "w") as f:
     pickle.dump(excludes, f)
 
-print_set(toplevel_dirs, "toplevel_dirs")  # list of directories started from
-print_set(all_c_files, "all_c_files")  # all .c files in used and visited subdirectories
-print_set(asm_compilation_units, "asm_compilation_units")  # compilation units with a .S file
-print_set(subdirectories, "subdirectory")  # subdirectory visited by kbuild
-print_set(used_subdirectory, "used_subdirectory")  # subdirectories containing compilation units
-print_set(compilation_units, "compilation_units")  # compilation units referenced by kbuild
-print_set(composites, "composites")  # compilation units that are composites
-print_set(library_units, "library_units")  # library units referenced by kbuild
+print_set(subdirectories, "subdirectory")
+print_set(compilation_units, "compilation_units")
+print_set(library_units, "library_units")
 print_set(hostprog_units, "hostprog_units")
 print_set(unconfigurable_units, "unconfigurable_units")
 print_set(extra_targets, "extra_targets")
 print_set(clean_files, "clean_files")
-print_set(c_file_targets, "c_file_targets")
 print_set(generated_c_files, "generated_c_files")
 print_set(unmatched_units, "unmatched_units")
 print_set(included_c_files, "included_c_files")
-print_set(offsets_files, "offsets_files")
 print_set(unidentified_c_files, "unidentified_c_files")
 print_set(unidentified_staging_c_files, "unidentified_staging_c_files")
 print_set(unidentified_skeleton_c_files, "unidentified_skeleton_c_files")
@@ -436,4 +334,3 @@ print_set(unexpanded_unconfigurable_units, "unexpanded_unconfigurable_units")
 print_set(unexpanded_extra_targets, "unexpanded_extra_targets")
 print_set(unexpanded_subdirectories, "unexpanded_subdirectories")
 print_set(broken, "broken")
-print "running_time", time.time() - starting_time

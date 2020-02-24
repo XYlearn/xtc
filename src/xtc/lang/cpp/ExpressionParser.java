@@ -75,7 +75,7 @@ public abstract class ExpressionParser {
           public Node parse(Iterator<Syntax> expression) {
             ForkMergeParser expressionParser
               = new ForkMergeParser(ExpressionParseTables.getInstance(),
-                                    ExpressionValues.getInstance(),
+                                    ExpressionSemanticValues.getInstance(),
                                     ExpressionActions.getInstance(), null,
                                     expression, presenceConditionManager);
             return (Node) expressionParser.parse();
@@ -113,13 +113,7 @@ public abstract class ExpressionParser {
             Node tree;
             try {
               result = parser.pConstantExpression(0);
-              // tree = (Node) parser.value(result);
-              if (! result.hasValue()) {
-                tree = null;
-                System.err.println(parser.format(result.parseError()));
-              } else {
-                tree = result.semanticValue();
-              }
+              tree = (Node) parser.value(result);
             } catch (java.io.IOException e ) {
               e.printStackTrace();
               throw new RuntimeException("couldn't parse expression");

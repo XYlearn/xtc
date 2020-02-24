@@ -32,7 +32,7 @@ import java.util.HashMap;
  * grammar.  It takes "name, type" pairs from the standard input.
  *
  * @author Paul Gazzillo
- * @version $Revision: 1.9 $
+ * @version $Revision: 1.6 $
  */
 public class GenerateValuesClass {
   public static void main(String args[]) throws Exception {
@@ -115,7 +115,6 @@ public class GenerateValuesClass {
             layout.add(sym);
           } else if (type.equals("action")) {
             action.put(sym, name);
-            complete.add(sym);
           } else if (type.equals("passthrough")) {
             passthrough.add(sym);
           } else if (type.equals("complete")) {
@@ -131,17 +130,6 @@ public class GenerateValuesClass {
         } else {
           System.err.println("error: there is no node " + name + " in the " +
             "grammar");
-        }
-      }
-
-      // Add support for automatically identifying inline, mid-rule
-      // actions.
-      for (int sym = 0; sym < parseTables.yytname.length; sym++) {
-        String name = parseTables.yytname[sym];
-        if (name.startsWith("$@")) {
-          action.put(sym, name);
-          complete.add(sym);  // all inline action nodes should be
-                              // complete lest they prevent merging!
         }
       }
 
@@ -163,7 +151,7 @@ public class GenerateValuesClass {
 "    Object value;\n" +
 "\n" +
 "    if (values == Pair.<Object>empty()) {\n" +
-"      value = GNode.create(name);\n" +
+"      value = null;\n" +
 "\n" +
 "    } else {\n" +
 "      value = GNode.createFromPair(name, values.head(), values.tail());\n" +

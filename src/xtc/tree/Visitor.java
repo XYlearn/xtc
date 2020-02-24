@@ -57,7 +57,7 @@ import xtc.util.Pair;
 public abstract class Visitor {
 
   /** Key for the method lookup cache. */
-  static final class CacheKey {
+  protected static final class CacheKey {
 
     /** The visitor. */
     public Visitor visitor;
@@ -92,45 +92,43 @@ public abstract class Visitor {
   // ========================================================================
 
   /** The size of the method lookup cache. */
-  private static final int CACHE_SIZE = 300;
+  protected static final int CACHE_SIZE = 300;
 
   /** The capacity of the method lookup cache. */
-  private static final int CACHE_CAPACITY = 400;
+  protected static final int CACHE_CAPACITY = 400;
 
   /** The load factor of the method lookup cache. */
-  private static final float CACHE_LOAD = (float)0.75;
+  protected static final float CACHE_LOAD = (float)0.75;
 
   /** The method lookup cache. */
-  private static final LinkedHashMap<CacheKey, Method> cache;
+  protected LinkedHashMap<CacheKey, Method> cache;
 
   /** The pre-allocated cache key for looking up methods. */
-  private static final CacheKey key;
+  protected CacheKey key;
 
   /** The pre-allocated array for passing the argument to invoke(). */
-  private static final Object[] arguments;
+  protected Object[] arguments;
 
   /**
    * The pre-allocated array for passing the type argument to
    * getMethod().
    */
-  private static final Class<?>[] types;
-
-  static {
-    cache     =
-      new LinkedHashMap<CacheKey, Method>(CACHE_CAPACITY, CACHE_LOAD, true) {
-        protected boolean removeEldestEntry(Map.Entry e) {
-          return size() > CACHE_SIZE;
-        }
-      };
-    key       = new CacheKey(null, null);
-    arguments = new Object[]   { null };
-    types     = new Class<?>[] { null };
-  }
+  protected Class<?>[] argTypes;
 
   // ========================================================================
 
   /** Create a new visitor. */
-  public Visitor() { /* Nothing to do. */ }
+  public Visitor() {
+    cache     =
+        new LinkedHashMap<CacheKey, Method>(CACHE_CAPACITY, CACHE_LOAD, true) {
+          protected boolean removeEldestEntry(Map.Entry e) {
+            return size() > CACHE_SIZE;
+          }
+        };
+    key       = new CacheKey(null, null);
+    arguments = new Object[]   { null };
+    argTypes  = new Class<?>[] { null };
+  }
 
   /**
    * Get a hashcode for this visitor.
@@ -240,26 +238,26 @@ public abstract class Visitor {
    * @param n The node.
    * @return The corresponding method.
    */
-  private Method findMethod(final Node n) {
+  protected Method findMethod(final Node n) {
     Class<?> visitorT = getClass();
     Method   method   = null;
 
     if (n.isGeneric()) {
       // Look for visit<n.getName()>(GNode).
-      types[0] = GNode.class;
+      argTypes[0] = GNode.class;
       try {
-        method = visitorT.getMethod("visit" + n.getName(), types);
+        method = visitorT.getMethod("visit" + n.getName(), argTypes);
       } catch (NoSuchMethodException x) {
 
         // Look for visit(GNode).
         try {
-          method = visitorT.getMethod("visit", types);
+          method = visitorT.getMethod("visit", argTypes);
         } catch (NoSuchMethodException xx) {
 
           // Look for visit(Node).
-          types[0] = Node.class;
+          argTypes[0] = Node.class;
           try {
-            method = visitorT.getMethod("visit", types);
+            method = visitorT.getMethod("visit", argTypes);
           } catch (NoSuchMethodException xxx) {
             // Ignore.
           }
@@ -273,9 +271,9 @@ public abstract class Visitor {
 
     // Look for unableToVisit(Node).
     if (null == method) {
-      types[0] = Node.class;
+      argTypes[0] = Node.class;
       try {
-        method = visitorT.getMethod("unableToVisit", types);
+        method = visitorT.getMethod("unableToVisit", argTypes);
       } catch (NoSuchMethodException x) {
         throw new AssertionError("Unable to find unableToVisit(Node)");
       }
@@ -298,20 +296,20 @@ public abstract class Visitor {
    * @param paramT The parameter type.
    * @return The method or <code>null</code> if no such method exists.
    */
-  private static Method findMethod(Class<?> k, String name, Class paramT) {
+  protected Method findMethod(Class<?> k, String name, Class paramT) {
     Method method = null;
 
     do {
-      types[0] = paramT;
+      argTypes[0] = paramT;
       try {
-        method = k.getMethod(name, types);
+        method = k.getMethod(name, argTypes);
       } catch (NoSuchMethodException x) {
         // Try the interfaces implemented by paramT.
         Class<?>[] interfaces = paramT.getInterfaces();
         for (int i=0; i<interfaces.length; i++) {
-          types[0] = interfaces[i];
+          argTypes[0] = interfaces[i];
           try {
-            method = k.getMethod(name, types);
+            method = k.getMethod(name, argTypes);
             break;
           } catch (NoSuchMethodException xx) {
             // Ignore.

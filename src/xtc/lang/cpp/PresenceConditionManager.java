@@ -29,22 +29,19 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.HashMap;
-import java.util.Set;
-import java.util.HashSet;
 
 import xtc.lang.cpp.Syntax.Kind;
 
 import net.sf.javabdd.BDDFactory;
 import net.sf.javabdd.BDD;
-  
 
 /** Presence condition manager.  It abstracts away the nitty-gritty of
   * using BDDs.
   *
   * @author Paul Gazzillo
-  * @version $Revision: 1.14 $
+  * @version $Revision: 1.6 $
   */
-class PresenceConditionManager {
+public class PresenceConditionManager {
 
   /** The BDD factory. */
   private BDDFactory B;
@@ -75,9 +72,6 @@ class PresenceConditionManager {
   /** The current presence condition. */
   private PresenceCondition current;
 
-  /** The CONFIG_-only domain of variables. */
-  private BDD configDomain;
-
   /**
    * Create a new presence condition manager.
    */
@@ -89,7 +83,6 @@ class PresenceConditionManager {
     this.branch = null;
     this.notBranches = null;
     this.current = null;
-    this.configDomain = null;
   }
 
   /**
@@ -278,100 +271,11 @@ class PresenceConditionManager {
     return current;
   }
   
+
   public boolean is(PresenceCondition presenceCondition) {
     return global.equals(presenceCondition.getBDD());
   }
-
-  /**
-   * Collect the domain of all CONFIG_-related BDDs.  This domain is
-   * used by simplifyToConfigs.  Calling this method will regenerate
-   * the domain if it's already computed.
-   */
-  public void generateConfigDomain() {
-    if (null != this.configDomain) this.configDomain.free();
-    
-    this.configDomain = B.zero();
-    for (int i = 0; i < getVariableManager().getSize(); i++) {
-      if (getVariableManager().getName(i).startsWith("(defined CONFIG_")) {
-        this.configDomain = this.configDomain.orWith(getVariableManager().getVariable(getVariableManager().getName(i)));
-      }
-    }
-  }
-
-  /**
-   * Check whether the config domain has been computed yet.
-   *
-   * @return true if the domain has been computed.
-   */
-  public boolean hasConfigDomain() {
-    return null != this.getConfigDomain();
-  }
-
-  /**
-   * Get the CONFIG_-only domain.
-   *
-   * @return The config domain
-   */
-  public BDD getConfigDomain() {
-    return this.configDomain;
-  }
-
-  /**
-   * Get the CONFIG_-only domain.
-   *
-   * @return The config domain
-   */
-  public PresenceCondition getConfigDomainCond() {
-    if (! hasConfigDomain()) {
-      generateConfigDomain();
-    }
-
-    return new PresenceCondition(getConfigDomain());
-  }
-
-  /**
-   * Simplify the BDD by narrowing the domain to only CONFIG_
-   * variables.  This will call generateConfigDomain only if the
-   * domain does not exist already.  Call generateConfigDomain to
-   * regenerate if new variables have been added.
-   *
-   * @param pc The presence condition to simplify.
-   * @return The simplified BDD.
-   */
-  public PresenceCondition simplifyToConfigs(PresenceCondition pc) {
-    if (! hasConfigDomain()) {
-      generateConfigDomain();
-    }
-
-    BDD r = pc.getBDD().id();
-    for (int i = 0; i < getVariableManager().getSize(); i++) {
-      if (getVariableManager().getName(i).contains("CONFIG_")) {
-        r = r.simplify(getVariableManager().getVariable(getVariableManager().getName(i)));
-      }
-    }
-
-    return new PresenceCondition(r);
-    // return new PresenceCondition(pc.getBDD().simplify(getConfigDomain()));
-  }
-
-  public PresenceCondition getRestrictCond(boolean val) {
-    BDD restrictBDD = B.one();
-    for (int i = 0; i < getVariableManager().getSize(); i++) {
-      // if (! getVariableManager().getName(i).contains("(defined CONFIG_")) {
-      if (! getVariableManager().getName(i).contains("CONFIG_")) {
-        if (val) {
-          restrictBDD = restrictBDD.andWith(getVariableManager().getVariable(getVariableManager().getName(i)));
-        } else {
-          BDD varbdd = getVariableManager().getVariable(getVariableManager().getName(i));
-          restrictBDD = restrictBDD.andWith(varbdd.not());
-          varbdd.free();
-        }
-      }
-    }
-
-    return new PresenceCondition(restrictBDD);
-  }
-
+  
   public Variables getVariableManager() {
     return vars;
   }
@@ -514,101 +418,6 @@ class PresenceConditionManager {
     return createConfiguration(false, null);
   }
 
-  /**
-   * Print one sat to a writer.
-   *
-   * @param writer The writer.
-   * @throws IOException Because it uses a Writer.
-   */
-  public void printOneSat(byte[] sat, Writer writer) throws IOException {
-    boolean first = true;
-    for (int i = 0; i < sat.length; i++) {
-      if (sat[i] >= 0 && ! first) {
-        writer.write(" && ");
-      }
-      switch (sat[i]) {
-      case 0:
-        writer.write("!");
-      case 1:
-        writer.write(vars.getName(i));
-        first = false;
-        break;
-      }
-    }
-  }
-
-  /**
-   * Print the BDD to a writer.
-   *
-   * @param bdd The bdd.
-   * @param writer The writer.
-   * @throws IOException Because it uses a Writer.
-   */
-  public void printBDD(BDD bdd, Writer writer) throws IOException {
-    List allsat;
-    boolean firstTerm;
-
-    if (bdd.isOne()) {
-      writer.write("1");
-
-      return;
-
-    } else if (bdd.isZero()) {
-      writer.write("0");
-
-      return;
-    }
-      
-    allsat = (List) bdd.allsat();
-      
-    firstTerm = true;
-    for (Object o : allsat) {        
-      if (! firstTerm) {
-        writer.write(" || ");
-      }
-      firstTerm = false;
-      
-      printOneSat((byte[]) o, writer);
-    }
-  }
-
-  /**
-   * Get the set of all config vars used by the given BDD.
-   *
-   * @param The BDD.
-   * @return The set of all config vars used.
-   */
-  public Set<String> getAllConfigsFromBDD(BDD bdd) {
-    List allsat;
-    Set<String> allConfigs = new HashSet<String>();
-
-    if (bdd.isOne()) {
-      return allConfigs;
-
-    } else if (bdd.isZero()) {
-      return allConfigs;
-    }
-      
-    allsat = (List) bdd.allsat();
-      
-    for (Object o : allsat) {
-      byte[] sat;
-
-      sat = (byte[]) o;
-      for (int i = 0; i < sat.length; i++) {
-        switch (sat[i]) {
-        case 0:
-          allConfigs.add("!" + vars.getName(i));
-          break;
-        case 1:
-          allConfigs.add(vars.getName(i));
-          break;
-        }
-      }
-    }
-
-    return allConfigs;
-  }
   
   /** A reference-counted presence condition that automatically cleans up BDD when
     * nothing references it anymore.
@@ -647,7 +456,7 @@ class PresenceConditionManager {
     public PresenceCondition and(PresenceCondition c) {
       return new PresenceCondition(bdd.and(c.bdd));
     }
-
+    
     /** Return this presence condition and not c.  Free any intermediate bdds. */
     public PresenceCondition andNot(PresenceCondition c) {
       PresenceCondition newPresenceCondition;
@@ -673,16 +482,6 @@ class PresenceConditionManager {
     /** Simplify */
     public PresenceCondition simplify(PresenceCondition c) {
       return new PresenceCondition(bdd.simplify(c.getBDD()));
-    }
-
-    /** One sat */
-    public PresenceCondition satOne() {
-      return new PresenceCondition(bdd.satOne());
-    }
-    
-    /** All sats */
-    public void allsat() {
-      bdd.allsat();
     }
     
     /** Compare */
@@ -746,181 +545,66 @@ class PresenceConditionManager {
     /**
      * Print the BDD to a writer.
      *
-     * @param bdd The BDD.
      * @param writer The writer.
      * @throws IOException Because it uses a Writer.
      */
     public void print(Writer writer) throws IOException {
-      printBDD(bdd, writer);
-    }
+      List allsat;
+      boolean firstTerm;
 
-
-    // /**
-    //  * Print the BDD as a CNF clauses.
-    //  *
-    //  * @param writer The writer.
-    //  * @throws IOException Because it uses a Writer.
-    //  */
-    // public void printCNF(Writer writer) throws IOException {
-    //   if (this.isTrue()) {
-    //     writer.write("1");
-
-    //     return;
-
-    //   } else if (this.isFalse()) {
-    //     writer.write("0");
-
-    //     return;
-    //   }
-
-    //   // We use the allsat() function on the bdd to get the clauses.
-    //   // allsat is in DNF, so we first negate the bdd.  Then, to
-    //   // generate CNF, we negate the clauses to make them conjunctive
-    //   // again.
-    //   PresenceCondition not = this.not();
-    //   List allsat = (List) not.getBDD().allsat();
-
-    //   for (Object o : allsat) {
-    //     byte[] sat = (byte[]) o;
-    //     ArrayList<Integer> clause = new ArrayList<Integer>();
-    //     StringBuilder sb = new StringBuilder();
-    //     for (int i = 0; i < sat.length; i++) {
-    //       int sign = 1;
-              
-    //       switch (sat[i]) {
-    //       case 1:
-    //         // negate again
-    //         sign = -1;
-    //       case 0:
-    //         String varname = not.presenceConditionManager().getVariableManager().getName(i);
-    //         // if (varname.startsWith("(defined ")) {
-    //         if (varname.contains("CONFIG")) {
-    //         // if (varname.startsWith("(defined CONFIG_")) {
-    //           // varname = varname.substring(9, varname.length() - 1);
-    //           if (-1 == sign) {
-    //             sb.append("-");
-    //           }
-    //           // sb.append("[");
-    //           sb.append(varname);
-    //           // sb.append("]");
-    //           sb.append(",");
-    //         }
-    //         break;
-    //       }
-    //     }
-    //     if (sb.toString().length() > 0) {
-    //       writer.write("(");
-    //       writer.write(sb.toString());
-    //       writer.write(")");
-    //     }
-    //   }
-
-    //   not.delRef();
-    // }
-
-    /**
-     * Print the BDD as a CNF clauses.
-     *
-     * @param writer The writer.
-     * @throws IOException Because it uses a Writer.
-     */
-    public void printNotCNF(PresenceCondition cond, Writer writer) throws IOException {
-      if (cond.isTrue()) {
-        writer.write("0");
-
-        return;
-
-      } else if (cond.isFalse()) {
+      if (bdd.isOne()) {
         writer.write("1");
 
         return;
+
+      } else if (bdd.isZero()) {
+        writer.write("0");
+
+        return;
       }
-
-      // We use the allsat() function on the bdd to get the clauses.
-      // allsat is in DNF, so we first negate the bdd.  Then, to
-      // generate CNF, we negate the clauses to make them conjunctive
-      // again.
-      List allsat = (List) cond.getBDD().allsat();
-
+      
+      allsat = (List) bdd.allsat();
+      
+      firstTerm = true;
       for (Object o : allsat) {
-        byte[] sat = (byte[]) o;
-        ArrayList<Integer> clause = new ArrayList<Integer>();
-        StringBuilder sb = new StringBuilder();
+        byte[] sat;
+        boolean first;
+        
+        if (! firstTerm) {
+          writer.write(" || ");
+        }
+        
+        firstTerm = false;
+
+        sat = (byte[]) o;
+        first = true;
         for (int i = 0; i < sat.length; i++) {
-          int sign = 1;
-              
+          if (sat[i] >= 0 && ! first) {
+            writer.write(" && ");
+          }
           switch (sat[i]) {
-          case 1:
-            // negate again
-            sign = -1;
-          case 0:
-            String varname = cond.presenceConditionManager().getVariableManager().getName(i);
-            // if (varname.startsWith("(defined ")) {
-            if (varname.contains("CONFIG")) {
-            // if (varname.startsWith("(defined CONFIG_")) {
-              // varname = varname.substring(9, varname.length() - 1);
-              if (-1 == sign) {
-                sb.append("-");
-              }
-              // sb.append("[");
-              sb.append(varname);
-              // sb.append("]");
-              sb.append(",");
-            }
-            break;
+            case 0:
+              writer.write("!");
+            case 1:
+              writer.write(vars.getName(i));
+              first = false;
+              break;
           }
         }
-        if (sb.toString().length() > 0) {
-          writer.write("(");
-          writer.write(sb.toString());
-          writer.write(")");
-        }
       }
     }
 
-    /**
-     * Get the set of all config vars used.
-     *
-     * @return The set of all config vars used.
-     */
-    public Set<String> getAllConfigs() {
-      return getAllConfigsFromBDD(bdd);
-    }
-
-    public PresenceConditionManager presenceConditionManager() {
-      return PresenceConditionManager.this;
-    }
-
-    /** Output the presence condition as a valid cpp conditional expression */
-    public String toCNF() {
-      StringWriter writer = new StringWriter();
-
-      try {
-        PresenceCondition not = this.not();
-        printNotCNF(not, writer);
-        not.delRef();
-      } catch (IOException e) {
-        // An inelegant way to sidestep not being able to throw an
-        // exception from the overridden toString method.
-        throw new RuntimeException();
+    @Override
+    public boolean equals(Object obj) {
+      if (obj instanceof PresenceCondition) {
+        return is((PresenceCondition)obj);
       }
-
-      return writer.toString();
+      return false;
     }
 
-    /** Output the presence condition as a valid cpp conditional expression */
-    public String toNotCNF() {
-      StringWriter writer = new StringWriter();
-
-      try {
-        printNotCNF(this, writer);
-      } catch (IOException e) {
-        // An inelegant way to sidestep not being able to throw an
-        // exception from the overridden toString method.
-        throw new RuntimeException();
-      }
-
-      return writer.toString();
+    @Override
+    public int hashCode() {
+      return bdd.hashCode();
     }
 
     /** Output the presence condition as a valid cpp conditional expression */
@@ -1017,15 +701,6 @@ class PresenceConditionManager {
         return newBDD.id();
       }
     }
-
-    /**
-     * Get the number of variables.
-     *
-     * @return The number of variables.
-     */
-    public int getSize() {
-      return indices.size();
-    }
     
     /**
      * Map BDD variable number to name.
@@ -1053,6 +728,30 @@ class PresenceConditionManager {
     }
 
     /**
+     * Create a string representation for the "is a macro defined"
+     * boolean variable, i.e. the "defined" operator.  This variable is
+     * truly boolean variable, as opposed to the macro name itself,
+     * since a macro may have non-boolean values.
+     *
+     * @param The name of the macro.
+     * @return A string representation of the boolean variable.
+     */
+    public String createDefinedVariable(String name) {
+      return "(defined " + name + ")";
+    }
+
+    /**
+     * Create a string representation for the "is a macro not defined"
+     * boolean variable
+     *
+     * @param The name of the macro.
+     * @return A string representation of the boolean variable.
+     */
+    public String createNotDefinedVariable(String name) {
+      return "! " + createDefinedVariable(name);
+    }
+
+    /**
      * Syntactic sugar for hasVariable(createDefinedVariable(name)).
      *
      * @param name The macro name.
@@ -1070,30 +769,6 @@ class PresenceConditionManager {
      */
     public BDD getDefinedVariable(String name) {
       return getVariable(createDefinedVariable(name));
-    }
-
-    /**
-     * Create a string representation for the "is a macro defined"
-     * boolean variable, i.e. the "defined" operator.  This variable is
-     * truly boolean variable, as opposed to the macro name itself,
-     * since a macro may have non-boolean values.
-     *
-     * @param The name of the macro.
-     * @return A string representation of the boolean variable.
-     */
-    public static String createDefinedVariable(String name) {
-      return "(defined " + name + ")";
-    }
-
-    /**
-     * Create a string representation for the "is a macro not defined"
-     * boolean variable
-     *
-     * @param The name of the macro.
-     * @return A string representation of the boolean variable.
-     */
-    public static String createNotDefinedVariable(String name) {
-      return "! " + createDefinedVariable(name);
     }
   }
 }

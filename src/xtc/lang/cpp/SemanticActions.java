@@ -24,17 +24,9 @@ import xtc.lang.cpp.ForkMergeParser.Subparser;
  * The interface to the semantic action plugin.
  *
  * @author Paul Gazzillo
- * @version $Revision: 1.4 $
+ * @version $Revision: 1.1 $
  */
 public interface SemanticActions {
-  /**
-   * Invoke an action inlined in a production.
-   *
-   * @param production The production number.
-   * @param subparser The subparser invoking the action.
-   */
-  public Object action(int production, Subparser subparser, Object value);
-
   /**
    * Dispatch a semantic action.
    *

@@ -47,56 +47,57 @@
 PACKAGE     = xtc.lang.cpp
 PACKAGE_LOC = xtc/lang/cpp
 
-c_parse_tables = c.tab.c c.prologue c.action_switches c.epilogue	\
-c.bison_content CParseTables.java
-
-c_lexer = CTag.java CLexer.java
-
-c_actions = CValues.java CActions.java
-
-c_expression_parsers = expression.tab.c expression.prologue						\
-expression.action_switches expression.epilogue												\
-ExpressionParseTables.java ExpressionValues.java ExpressionRats.java
-
 SOURCE = \
 	BuiltinsGenerator.java \
 	Builtins.java \
-	GenerateValuesClass.java \
-	GenerateActionsClass.java \
+	PresenceConditionManager.java \
+	Syntax.java \
 	ParseTables.java \
 	SemanticValues.java \
 	SemanticActions.java \
-	CContext.java \
-	$(c_parse_tables) \
-	$(c_lexer) \
-	$(c_actions) \
-	$(c_expression_parsers) \
-	Syntax.java \
-	PresenceConditionManager.java \
 	ParsingContext.java \
+	GenerateValuesClass.java \
+	GenerateActionsClass.java \
 	DirectiveParser.java \
 	HeaderFileManager.java \
 	MacroTable.java \
 	Preprocessor.java \
 	ForkMergeParser.java \
-	Clauses.java \
 	TokenFilter.java \
 	FilenameService.java \
 	StreamTimer.java \
 	StopWatch.java \
+	ExpressionParseTables.java \
+	ExpressionSemanticValues.java \
+	ExpressionActionsInterface.java \
+	ExpressionActions.java \
+	ExpressionRats.java \
 	TreeComparator.java \
 	ExpressionParser.java \
 	ConditionEvaluator.java \
+	CTag.java \
+	CLexer.java \
+	CParseTables.java \
 	CTokenCreator.java \
+	CSemanticValues.java \
+	CActionsInterface.java \
+	CSemanticActions.java \
+	CParsingContext.java \
 	GCCShunt.java \
 	cdiff.java \
-	FunctionChecker.java \
-	SuperC.java
+	SuperC.java \
+	ASTVisitor.java \
+	Feature.java \
+	PcMap.java \
+	FeatureManager.java \
+	FeatureSuperC.java
 
 
 JNI_SOURCE =
 
 JAR_EXTRAS =
+
+BISON=/usr/local/Cellar/bison@2.7/2.7.1_1/bin/bison
 
 
 #***************************************************************************
@@ -121,7 +122,6 @@ configure:
 	$(MAKE) Builtins.java
 	$(MAKE) Builtins.class
 	if [ -f ${JAVA_DEV_ROOT}/classes/xtc/lang/cpp/SuperC.class ]; then $(RM) ${JAVA_DEV_ROOT}/classes/xtc/lang/cpp/SuperC.class; $(MAKE) SuperC.class; fi
-	$(MAKE) select-typechecker
 
 Builtins.java:
 	$(CPP) $(CPPFLAGS) -v empty.c 2> sysdirs > /dev/null
@@ -130,90 +130,55 @@ Builtins.java:
 	$(RM) sysdirs
 	$(RM) builtins
 
-$(c_parse_tables): c.y gen_tables.c
-	bison -o c.tab.c c.y
-
-	# extract prologue, epilogue, and inline actions for inclusion in
-	# CActions
-	./extract_bison_java.sh c.y
-
-	$(CC) $(CFLAGS) -DBISON_PARSER_FILE=c.bison_content -DCLASS_NAME=CParseTables -o gen_c_tables gen_tables.c
+parsers:
+	@# c parse tables
+	$(BISON) -o c.tab.c c.y
+	$(CC) $(CFLAGS) -DBISON_PARSER_FILE=c.tab.c -DCLASS_NAME=CParseTables -o gen_c_tables gen_tables.c
 	./gen_c_tables > CParseTables.java
 	$(RM) gen_c_tables
 	$(MAKE) CParseTables.class
-
-$(c_lexer): c.l Syntax.java $(c_parse_tables)
+	@#
+	@# C lexer and token tags
 	$(CPP) $(CPPFLAGS) -DLANGUAGE_TAGS - < c.l | grep -v "^#" > CTag.java
-
-	#   filter out line directives for java compilation
+	$(MAKE) CTag.class
+	@#
+	@# lexer
+	@#   filter out line directives for java compilation
 	$(CPP) $(CPPFLAGS) - < c.l | grep -v "^#" > c.l.lexer
 	$(JAVA) -jar $(JAVA_DEV_ROOT)/bin/JFlex.jar c.l.lexer
 	$(RM) c.l.lexer
-
-$(c_actions): $(c_parse_tables)
+	$(MAKE) CLexer.class
+	@#
+	@# C semantic actions
 	$(MAKE) GenerateValuesClass.class
+	./extract_annotations.pl < c.y | $(JAVA) xtc.lang.cpp.GenerateValuesClass CSemanticValues xtc.lang.cpp.CParseTables > CSemanticValues.java
 	$(MAKE) GenerateActionsClass.class
-	./extract_annotations.pl < c.y | $(JAVA) xtc.lang.cpp.GenerateValuesClass CValues xtc.lang.cpp.CParseTables > CValues.java
-	./extract_annotations.pl < c.y | $(JAVA) xtc.lang.cpp.GenerateActionsClass CActions xtc.lang.cpp.CParseTables c.action_switches c.prologue c.epilogue > CActions.java
-
-$(c_expression_parsers): expression.y gen_tables.c Condition.rats
-	bison -o expression.tab.c expression.y
-
-	./extract_bison_java.sh expression.y
-
-	$(CC) $(CFLAGS) -DBISON_PARSER_FILE=expression.bison_content -DCLASS_NAME=ExpressionParseTables -o gen_expression_tables gen_tables.c
+	./extract_annotations.pl < c.y | $(JAVA) xtc.lang.cpp.GenerateActionsClass CActionsInterface xtc.lang.cpp.CParseTables > CActionsInterface.java
+	$(MAKE) CSemanticValues.class
+	$(MAKE) CActionsInterface.class
+	@#
+	@# expression parser
+	$(BISON) -o expression.tab.c expression.y
+	$(CC) $(CFLAGS) -DBISON_PARSER_FILE=expression.tab.c -DCLASS_NAME=ExpressionParseTables -o gen_expression_tables gen_tables.c
 	./gen_expression_tables > ExpressionParseTables.java
 	$(RM) gen_expression_tables
 	$(MAKE) ExpressionParseTables.class
-
-	$(MAKE) GenerateValuesClass.class
-	$(MAKE) GenerateActionsClass.class
-	./extract_annotations.pl < expression.y | $(JAVA) xtc.lang.cpp.GenerateValuesClass ExpressionValues xtc.lang.cpp.ExpressionParseTables > ExpressionValues.java
-	./extract_annotations.pl < expression.y | $(JAVA) xtc.lang.cpp.GenerateActionsClass ExpressionActions xtc.lang.cpp.ExpressionParseTables expression.action_switches expression.prologue expression.epilogue > ExpressionActions.java
-
-	# expression parser (rats)
+	@#
+	./extract_annotations.pl < expression.y | $(JAVA) xtc.lang.cpp.GenerateValuesClass ExpressionSemanticValues xtc.lang.cpp.ExpressionParseTables > ExpressionSemanticValues.java
+	./extract_annotations.pl < expression.y | $(JAVA) xtc.lang.cpp.GenerateActionsClass ExpressionActionsInterface xtc.lang.cpp.ExpressionParseTables > ExpressionActionsInterface.java
+	$(MAKE) ExpressionSemanticValues.class
+	$(MAKE) ExpressionActionsInterface.class
+	@#
+	@# expression parser (rats)
 	$(RATS) -option 'parser(xtc.lang.cpp.ExpressionRats)' Condition.rats
 	$(MAKE) ExpressionRats.class
-
-	# force rebuild of fml parser to use newly built expression parsers
 	$(RM) ${JAVA_DEV_ROOT}/classes/xtc/lang/cpp/ForkMergeParser.class
 	$(MAKE) ForkMergeParser.class
 
-parsers:
-	$(MAKE) $(c_parse_tables)
-	$(MAKE) $(c_lexer)
-	$(MAKE) $(c_actions)
-	$(MAKE) $(c_expression_parsers)
-
-# update c.y based on hidden link to selected grammar file
-c.y: .c.y
-	$(RM) -f $@
-	echo -e " /* COPIED FROM SYMLINKED $< BY MAKE.  DO NOT EDIT. */\n" > $@
-	cat $< >> $@
-	chmod a-w $@
-
-# update CContext.java based on hidden link to selected grammar file
-CContext.java: .CContext.java
-	$(RM) -f $@
-	echo -e " /* COPIED FROM SYMLINKED $< BY MAKE.  DO NOT EDIT. */\n" > $@
-	cat $< >> $@
-	chmod a-w $@
-
-select-parsingonly:
-	$(RM) -f .c.y c.y .CContext.java CContext.java
-	ln -s $(PWD)/c_parsingonly.y .c.y
-	ln -s $(PWD)/CContext_parsingonly.java .CContext.java
-
-select-typechecker:
-	$(RM) -f .c.y c.y .CContext.java CContext.java
-	ln -s $(PWD)/c_typechecker.y .c.y
-	ln -s $(PWD)/CContext_typechecker.java .CContext.java
-
-which-grammar:
-	@readlink .c.y | xargs basename
-	@readlink .CContext.java | xargs basename
-
 clobber-parsers :
-	$(RM) $(c_parse_tables) $(c_lexer) $(c_actions) $(c_expression_parsers)
+	$(RM) CLexer.java
+	$(RM) c.tab.c
+	$(RM) CActionsBase.java
+	$(RM) ExpressionRats.java
 
 endif

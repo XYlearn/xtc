@@ -463,20 +463,9 @@ is taken from the child node, e.g.,
 
 \textbf{list}, \textbf{layout}, \textbf{void}, \textbf{passthrough},
 and \textbf{action} are mutually-exclusive.  \textbf{complete} and
-\textbf{name} can be added to any symbol.  \textbf{layout} is the only
+\textbf{name} can be added to any symbol.  \texbf{layout} is the only
 annotation that can be used on tokens.
 
 here are examples where each node declaration is used.
-
-\subsection{Grammar Files and Semantic Actions}
-
-SuperC's parser generator can extract java code from the bison grammar
-file's prologue, epilogue, and inline semantic actions in and after
-productions.  All semantic actions have access to a \texttt{subparser}
-variable that is a reference to the current subparser reducing the
-production, and therefore its stack and parsing context.  Semantic
-actions can also set or modify the \texttt{value} variable.  The
-contents of the value variable is the automatically-generated AST node
-described in Declarative AST Generation above.
 
 \end{document}

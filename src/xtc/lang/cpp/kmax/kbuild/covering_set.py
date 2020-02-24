@@ -1,21 +1,5 @@
 #!/usr/bin/env python
 
-# Kmax
-# Copyright (C) 2012-2015 Paul Gazzillo
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 # Given a Kbuild Makefile, emit a set of configurations that cover all
 # compilation units in the Makefile.
 
@@ -59,11 +43,6 @@ argparser.add_argument('-n',
                        action="store_true",
                        help="""\
 use naive append behavior, which has more exponential explosion""")
-argparser.add_argument('-g',
-                       '--get-presence-conditions',
-                       action="store_true",
-                       help="""\
-get presence conditions for each compilation units""")
 argparser.add_argument('-r',
                        '--recursive',
                        action="store_true",
@@ -80,31 +59,7 @@ argparser.add_argument('-p',
                        help="""\
 pickle a tuple of two sets containing the compilation units and subdirectories \
 respectively""")
-argparser.add_argument('-C',
-                       '--config-vars',
-                       type=str,
-                       help="""the name of a KConfigData file containing \
-configuration variable data""")
-argparser.add_argument('-b',
-                       '--boot-strap',
-                       action="store_true",
-                       help="""\
-Get the top-level directories from the arch-specifier Makefile""")
 args = argparser.parse_args()
-
-kconfigdata = None
-all_config_var_names = None
-boolean_config_var_names = None
-nonboolean_config_var_names = None
-if args.config_vars:
-    with open(args.config_vars, 'rb') as f:
-        kconfigdata = pickle.load(f)
-        boolean_config_var_names = [ "CONFIG_" + c
-                                     for c in kconfigdata.bool_vars ]
-        nonboolean_config_var_names = [ "CONFIG_" + c
-                                        for c in kconfigdata.nonbool_vars ]
-        all_config_var_names = [ "CONFIG_" + c
-                                        for c in kconfigdata.config_vars ]
 
 class Flavor:
     RECURSIVE = 1
@@ -168,19 +123,6 @@ def dedup_multiverse(multiverse):
         # debug("dedup:",before,"to",after)
     return multiverse
 
-def hasConfig():
-    return all_config_var_names != None
-
-def isBooleanConfig(name):
-    if all_config_var_names != None and not isNonbooleanConfig(name):
-        return name in all_config_var_names
-    return False
-
-def isNonbooleanConfig(name):
-    if nonboolean_config_var_names != None:
-        return name in nonboolean_config_var_names
-    return False
-
 class Kbuild:
     def __init__(self):
         # BDD engine
@@ -203,19 +145,6 @@ class Kbuild:
         self.boolean_variables = defaultdict(
             lambda: BooleanVariable(self.mgr.IthVar(len(self.boolean_variables)),
                                     len(self.boolean_variables)))
-        self.undefined_variables = set()
-
-        # token presence conditions
-        self.token_pc = {}
-
-        # compilation unit presence conditions
-        self.unit_pc = {}
-
-        # subdir presence conditions
-        self.subdir_pc = {}
-
-        # composite presence conditions
-        self.composite_pc = {}
 
     def print_variable(self, name, variable):
         print "VARIABLE:", name
@@ -244,77 +173,36 @@ class Kbuild:
         else:
             return negation(self.boolean_variables[variable_name].bdd)
 
-    def process_variableref(self, name):
-        if name == 'BITS':
-            # TODO get real entry from top-level makefiles
-            return Multiverse([ (self.boolean_variables["BITS=32"].bdd, "32"),
-                                (self.boolean_variables["BITS=64"].bdd, "64") ])
-        # elif name == 'ARCH':
-        #     # TODO user-defined
-        #     return Multiverse([ (self.T, "x86") ])
-        elif name == "CONFIG_WORD_SIZE":
-            # TODO get defaults from Kconfig files
-            return Multiverse([ (self.boolean_variables["CONFIG_WORD_SIZE=32"].bdd, "32"),
-                                (self.boolean_variables["CONFIG_WORD_SIZE=64"].bdd, "64") ])
-        elif name not in self.variables and name == "MMU":
-            # TODO get globals from arch Makefiles
-            is_defined = self.get_defined("CONFIG_MMU", True)
-            not_defined = self.get_defined("CONFIG_MMU", False)
-
-            return Multiverse([ (is_defined, ''),
-                                (not_defined, '-nommu') ])
-        elif isBooleanConfig(name) or not hasConfig() and name.startswith("CONFIG_"):
-        # if (isBooleanConfig(name) or name.startswith("CONFIG_")) \
-        #    and not isNonbooleanConfig(name):
-            # TODO don't use 'm' for truly boolean config vars
-            is_defined = conjunction(self.get_defined(name, True),
-                                     self.boolean_variables[name + "=y"].bdd)
-            not_defined = self.get_defined(name, False)
-
-            return Multiverse([ (is_defined, 'y'),
-                                (is_defined, 'm'),
-                                (not_defined, None) ])
-        # elif (name.startswith("CONFIG_")) and not isNonbooleanConfig(name):
-        #     return Multiverse([ (self.T, '') ])
-        else:
-            if name in self.undefined_variables:
-                return Multiverse( [(condition, value)
-                                    for value, condition, _ in self.variables[name]])
-            elif name not in self.variables and not isNonbooleanConfig(name):
-                # Leave undefined variables unexpanded
-                self.undefined_variables.add(name)
-                self.variables[name] = [VariableEntry("$(%s)" % (name),
-                                                      self.T,
-                                                      Flavor.RECURSIVE)]
-
-                warn("Undefined variable expansion", name)
-                return Multiverse( [(condition, value)
-                                    for value, condition, _ in self.variables[name]])
-            else:
-                expansions = []
-                for value, condition, _ in self.variables[name]:
-                    if value == None:
-                        expansions.append((condition, value))
-                    else:
-                        expansions = expansions + self.expand_and_flatten(value, condition)
-
-                # print expansions
-                # return Multiverse( [(condition, value)
-                #                     for value, condition, _ in self.variables[name]])
-                return Multiverse(expansions)
-
     def process_function(self, function):
         """Evaluate variable expansion or built-in function and return
         either a single string or a list of (condition, string) pairs."""
         if isinstance(function, functions.VariableRef):
-            name = self.repack_singleton(self.process_expansion(function.vname))
-            
-            expanded_names = []
-            for name_cond, name_value  in name:
-                expanded_name = self.process_variableref(name_value)
-                for (expanded_cond, expanded_value) in expanded_name:
-                    expanded_names.append(( conjunction(name_cond, expanded_cond), expanded_value ))
-            return Multiverse(expanded_names)
+            name = self.process_expansion(function.vname)
+            if name.startswith('CONFIG_'):
+                # TODO add real entries for config vars
+                is_defined = conjunction(self.get_defined(name, True),
+                                         self.boolean_variables[name + "=y"].bdd)
+                not_defined = self.get_defined(name, False)
+
+                return Multiverse([ (is_defined, 'y'),
+                                    (is_defined, 'm'),
+                                    (not_defined, None) ])
+            elif name == 'BITS':
+                # TODO get real entry from top-level makefiles
+                return Multiverse([ (self.boolean_variables["BITS=32"].bdd, "32"),
+                                    (self.boolean_variables["BITS=64"].bdd, "64") ])
+            # elif name == 'ARCH':
+            #     # TODO user-defined
+            #     return Multiverse([ (self.T, "x86") ])
+            else:
+                if name not in self.variables:
+                    # Leave undefined variables unexpanded
+                    self.variables[name] = [VariableEntry("$(%s)" % (name),
+                                                          self.T,
+                                                          Flavor.RECURSIVE)]
+                    warn("Undefined variable expansion", name)
+                return Multiverse( [(condition, value)
+                                    for value, condition, _ in self.variables[name]])
         elif isinstance(function, functions.SubstFunction):
             from_values = self.repack_singleton(self.process_expansion(function._arguments[0]))
             to_values = self.repack_singleton(self.process_expansion(function._arguments[1]))
@@ -346,93 +234,22 @@ class Kbuild:
         #     # TODO: implement and test on drivers/staging/wlags49_h25/
         #     fatal("Unsupported function", function)
         #     return None
-        elif isinstance(function, functions.SubstitutionRef):
-            from_values = self.repack_singleton(self.process_expansion(function.substfrom))
-            to_values = self.repack_singleton(self.process_expansion(function.substto))
-            name = self.repack_singleton(self.process_expansion(function.vname))
-
-            # first expand the variable
-            in_values = []
-            for name_cond, name_value in name:
-                expanded_name = self.process_variableref(name_value)
-                for (expanded_cond, expanded_value) in expanded_name:
-                    in_values.append( (conjunction(name_cond, expanded_cond), expanded_value) )
-
-            # then do patsubst
-            hoisted_arguments = tuple((s, r, d)
-                                      for s in from_values
-                                      for r in to_values
-                                      for d in in_values)
-
-            hoisted_results = []
-            for (c1, s), (c2, r), (c3, d) in hoisted_arguments:
-                instance_condition = conjunction(c1, conjunction(c2, c3))
-                if instance_condition != self.F:
-                    if r == None: r = ""  # Fixes bug in net/l2tp/Makefile
-                    if r"%" not in s:
-                        # without a %, use a % to implement replacing
-                        # the end of the string
-                        s = r"%" + s
-                        r = r"%" + r
-                    pattern = "^" + s.replace(r"%", r"(.*)", 1) + "$"
-                    replacement = r.replace(r"%", r"\1", 1)
-                    if d != None:
-                        instance_result = " ".join([re.sub(pattern, replacement, d_token) for d_token in d.split()])
-                    else:
-                        instance_result = None
-                    hoisted_results.append((instance_condition, instance_result))
-
-            return Multiverse(hoisted_results)
-        elif isinstance(function, functions.IfFunction):
-            condition_part = self.repack_singleton(self.process_expansion(function._arguments[0]))
-            then_part = self.repack_singleton(self.process_expansion(function._arguments[1]))
-            then_condition = self.F
-            else_condition = self.F
-            for condition, value in condition_part:
-                if value == None:
-                    value = ""
-                if (len(str(value)) > 0):
-                    then_condition = disjunction(then_condition, condition)
-                else:
-                    else_condition = disjunction(then_condition, condition)
-            expansions = []
-            for condition, value in then_part:
-                condition = conjunction(then_condition, condition)
-                if condition != self.F:
-                    expansions.append((condition, value))
-            if len(function._arguments) > 2:
-                else_part = self.repack_singleton(self.process_expansion(function._arguments[2]))
-                for condition, value in else_part:
-                    condition = conjunction(else_condition, condition)
-                    if condition != self.F:
-                        expansions.append((condition, value))
-            return Multiverse(expansions)
+        # elif isinstance(function, functions.SubstitutionRef):
+        #     # TODO: implement and test on drivers/staging/media/go7007/
+        #     fatal("Unsupported function", function)
+        #     return None
+        # elif isinstance(function, functions.IfFunction):
+        #     # TODO: implement and test on usr/
+        #     fatal("Unsupported function", function)
+        #     return None
         # elif isinstance(function, functions.WildcardFunction):
         #     # TODO: implement and test on usr/
         #     fatal("Unsupported function", function)
         #     return None
-        elif isinstance(function, functions.FilteroutFunction):
-            from_values = self.repack_singleton(self.process_expansion(function._arguments[0]))
-            in_values = self.repack_singleton(self.process_expansion(function._arguments[1]))
-
-            # Hoist conditionals around the function by getting all
-            # combinations of arguments
-            hoisted_arguments = tuple((s, d)
-                                      for s in from_values
-                                      for d in in_values)
-
-            hoisted_results = []
-            # Compute the function for each combination of arguments
-            for (c1, s), (c2, d) in hoisted_arguments:
-                instance_condition = conjunction(c1, c2)
-                if instance_condition != self.F:
-                    if d != None:
-                        instance_result = " ".join([d_token for d_token in d.split() if d_token != s])
-                    else:
-                        instance_result = None
-                    hoisted_results.append((instance_condition, instance_result))
-
-            return Multiverse(hoisted_results)
+        # elif isinstance(function, functions.FilteroutFunction):
+        #     # TODO: implement and test on arch/x86/vdso/
+        #     fatal("Unsupported function", function)
+        #     return None
         # elif isinstance(function, functions.ForEachFunction):
         #     # TODO: implement and test on arch/x86/vdso/
         #     fatal("Unsupported function", function)
@@ -445,36 +262,14 @@ class Kbuild:
         #     # TODO: implement and test on ./Makefile
         #     fatal("Unsupported function", function)
         #     return None
-        elif isinstance(function, functions.PatSubstFunction):
-            from_values = self.repack_singleton(self.process_expansion(function._arguments[0]))
-            to_values = self.repack_singleton(self.process_expansion(function._arguments[1]))
-            in_values = self.repack_singleton(self.process_expansion(function._arguments[2]))
-
-            # Hoist conditionals around the function by getting all
-            # combinations of arguments
-            hoisted_arguments = tuple((s, r, d)
-                                      for s in from_values
-                                      for r in to_values
-                                      for d in in_values)
-
-            hoisted_results = []
-            # Compute the function for each combination of arguments
-            for (c1, s), (c2, r), (c3, d) in hoisted_arguments:
-                instance_condition = conjunction(c1, conjunction(c2, c3))
-                if instance_condition != self.F:
-                    if r == None: r = ""  # Fixes bug in net/l2tp/Makefile
-                    pattern = "^" + s.replace(r"%", r"(.*)", 1) + "$"
-                    replacement = r.replace(r"%", r"\1", 1)
-                    if d != None:
-                        instance_result = " ".join([re.sub(pattern, replacement, d_token) for d_token in d.split()])
-                    else:
-                        instance_result = None
-                    hoisted_results.append((instance_condition, instance_result))
-
-            return Multiverse(hoisted_results)
-        elif isinstance(function, functions.SortFunction):
-            # no sorting for now
-            return Multiverse(self.repack_singleton(self.process_expansion(function._arguments[0])))
+        # elif isinstance(function, functions.PatSubstFunction):
+        #     # TODO: implement and test on ./Makefile
+        #     fatal("Unsupported function", function)
+        #     return None
+        # elif isinstance(function, functions.SortFunction):
+        #     # TODO: implement and test on ./Makefile
+        #     fatal("Unsupported function", function)
+        #     return None
         elif isinstance(function, functions.AddPrefixFunction):
             prefixes = self.repack_singleton(self.process_expansion(function._arguments[0]))
             token_strings = self.repack_singleton(self.process_expansion(function._arguments[1]))
@@ -485,12 +280,9 @@ class Kbuild:
                     resulting_cond = conjunction(prefix_cond, tokens_cond)
                     if resulting_cond != self.F:
                         # append prefix to each token in the token_string
-                        if token_string != None:
-                            prefixed_tokens = " ".join([ prefix + token
-                                                         for token
-                                                         in token_string.split() ])
-                        else:
-                            prefixed_tokens = ""
+                        prefixed_tokens = " ".join([ prefix + token
+                                                     for token
+                                                     in token_string.split() ])
                         hoisted_results.append((resulting_cond, prefixed_tokens))
 
             return Multiverse(hoisted_results)
@@ -568,9 +360,7 @@ class Kbuild:
         # See if the block has an else branch.  Assumes no "else if".
         if len(block) == 1: has_else = False
         elif len(block) == 2: has_else = True
-        else:
-            warn("unsupported conditional block", block)
-            return
+        else: fatal("unsupported conditional block", block)
 
         # Process first branch
         condition, statements = block[0]  # condition is a Condition object
@@ -596,10 +386,6 @@ class Kbuild:
             hoisted_else = self.F
             for c1, v1 in exp1:
                 for c2, v2 in exp2:
-                    if v1 == None:
-                        v1 = ""
-                    if v2 == None:
-                        v2 = ""
                     term_condition = conjunction(c1, c2)
                     if term_condition != self.F and (v1 == v2) == condition.expected:
                         hoisted_condition = disjunction(hoisted_condition,
@@ -607,13 +393,6 @@ class Kbuild:
                     elif term_condition != self.F:
                         hoisted_else = disjunction(hoisted_else,
                                                    term_condition)
-                    if contains_unexpanded(v1) or contains_unexpanded(v2):
-                        new_var_name = str(v1) + "=" + str(v2)
-                        new_bdd_var = self.boolean_variables[new_var_name].bdd
-                        hoisted_condition = disjunction(hoisted_condition,
-                                                        new_bdd_var)
-                        hoisted_else = disjunction(hoisted_else,
-                                                   negation(new_bdd_var))
                         
 
                 first_branch_condition = conjunction(presence_condition,
@@ -702,9 +481,9 @@ class Kbuild:
         """Converts the expression to a string"""
 
         if condition == self.T:
-            return "1"
+            return "True"
         elif condition == self.F:
-            return "0"
+            return "False"
 
         expression = ""
         term_delim = ""
@@ -899,22 +678,6 @@ class Kbuild:
         if isinstance(name, str):
             # debug("setvariable under presence condition "
             #       + name + " " + self.bdd_to_str(condition))
-            if (args.get_presence_conditions):
-                if (name.endswith("-y") or name.endswith("-m")):
-                    splitvalue = value.split()
-                    for v in splitvalue:
-                        if v.endswith(".o") or v.endswith("/"):
-                            if not v in self.token_pc.keys():
-                                self.token_pc[v] = self.T
-                            # update nested_condition
-                            self.token_pc[v] = conjunction(self.token_pc[v], condition)
-                            if (name in ["obj-y", "obj-m"]):
-                                # save final BDD for the token
-                                if v.endswith(".o"):
-                                    self.unit_pc[v] = self.token_pc[v]
-                                    # print self.bdd_to_str(self.unit_pc[v])
-                                elif v.endswith("/"):
-                                    self.subdir_pc[v] = self.token_pc[v]
             self.add_variable_entry(name, condition, token, value)
         else:
             for local_condition, expanded_name in name:
@@ -922,40 +685,10 @@ class Kbuild:
                 #           + expanded_name + " "
                 #       + self.bdd_to_str(local_condition))
                 nested_condition = conjunction(local_condition, condition)
-                if (args.get_presence_conditions):
-                    if (expanded_name.endswith("-y") or expanded_name.endswith("-m")):
-                        splitvalue = value.split()
-                        for v in splitvalue:
-                            if v.endswith(".o") or v.endswith("/"):
-                                if not v in self.token_pc.keys():
-                                    self.token_pc[v] = self.T
-                                # update nested_condition
-                                self.token_pc[v] = conjunction(self.token_pc[v], nested_condition)
-                                if (expanded_name in ["obj-y", "obj-m"]):
-                                    # save final BDD for the token
-                                    if v.endswith(".o"):
-                                        self.unit_pc[v] = self.token_pc[v]
-                                        # print self.bdd_to_str(self.unit_pc[v])
-                                    elif v.endswith("/"):
-                                        self.subdir_pc[v] = self.token_pc[v]
-
                 self.add_variable_entry(expanded_name, nested_condition, token, value)
 
     def process_rule(self, rule, condition):
         pass
-
-    def process_include(self, s, condition):
-        expanded_include = self.repack_singleton(self.process_expansion(s.exp))
-        for include_cond, include_files in expanded_include:
-            if include_files != None:
-                for include_file in include_files.split():
-                    obj = os.path.dirname(include_file)
-                    if os.path.exists(include_file):
-                        include_makefile = open(include_file, "rU")
-                        s = include_makefile.read()
-                        include_makefile.close()
-                        include_statements = parser.parsestring(s, include_makefile.name)
-                        self.process_statements(include_statements, include_cond)
 
     def process_statements(self, statements, condition):
         """Find configurations in the given list of statements under the
@@ -968,8 +701,6 @@ class Kbuild:
             elif (isinstance(s, parserdata.Rule) or
                   isinstance(s, parserdata.StaticPatternRule)):
                 self.process_rule(s, condition)
-            elif (isinstance(s, parserdata.Include)):
-                self.process_include(s, condition)
 
 def split_definitions(kbuild, pending_variable):
     """get every whitespace-delimited token in all definitions of the
@@ -981,21 +712,9 @@ def split_definitions(kbuild, pending_variable):
         if value != None:
             expanded_values = kbuild.repack_singleton(
                 kbuild.expand_and_flatten(value, presence_condition))
-            for expanded_condition, expanded_value in expanded_values:
+            for _, expanded_value in expanded_values:
                 if expanded_value != None:
-                    split_expanded_values = expanded_value.split()
-                    values.extend(split_expanded_values)
-
-                    if (args.get_presence_conditions):
-                        composite_unit = "-".join(pending_variable.split('-')[:-1]) + ".o"
-                        if composite_unit in kbuild.token_pc:
-                            for v in split_expanded_values:
-                                composite_condition = conjunction(expanded_condition, kbuild.token_pc[composite_unit])
-                                if not v in kbuild.token_pc.keys():
-                                    kbuild.token_pc[v] = kbuild.T
-                                # update nested_condition
-                                kbuild.token_pc[v] = conjunction(kbuild.token_pc[v], composite_condition)
-
+                    values.extend(expanded_value.split())
     return values
 
 def collect_units(kbuild,            # current kbuild instance
@@ -1004,8 +723,7 @@ def collect_units(kbuild,            # current kbuild instance
                                      # emptied
                   compilation_units, # adds units to this set
                   subdirectories,    # adds subdir to this set
-                  composites,        # adds composites to this set
-                  store_pcs=False):  # save pcs from these variables
+                  composites):       # adds composites to this set
     """fixed-point algorithm that adds composites and stops when no
     more variables to look at are available"""
     processed_variables = set()
@@ -1016,7 +734,7 @@ def collect_units(kbuild,            # current kbuild instance
         # Collect the list of definitions
         values = split_definitions(kbuild, pending_variable)
         for elem in values:
-            unit_name = os.path.normpath(os.path.join(obj, elem))
+            unit_name = os.path.join(obj, elem)
             
             if elem.endswith(".o") and unit_name not in compilation_units:
                 # Expand composites
@@ -1035,28 +753,18 @@ def collect_units(kbuild,            # current kbuild instance
                         composites.add(unit_name)
                         pending_variables.add(composite_variable1)
                         pending_variables.add(composite_variable2)
-                        if store_pcs:
-                            if (elem not in kbuild.token_pc): kbuild.token_pc[elem] = kbuild.T
-                            kbuild.composite_pc[elem] = kbuild.token_pc[elem]
                         
-                    if os.path.isfile(unit_name[:-2] + ".c") or os.path.isfile(unit_name[:-2] + ".S"): 
+                    if os.path.isfile(unit_name[:-2] + ".c"):
                         compilation_units.add(unit_name)
-                        if store_pcs:
-                            if (elem not in kbuild.token_pc): kbuild.token_pc[elem] = kbuild.T
-                            kbuild.unit_pc[elem] = kbuild.token_pc[elem]
                 else:
                     compilation_units.add(unit_name)
-                    if store_pcs:
-                        if (elem not in kbuild.token_pc): kbuild.token_pc[elem] = kbuild.T
-                        kbuild.unit_pc[elem] = kbuild.token_pc[elem]
             elif elem.endswith("/"):
                 # scripts/Makefile.lib takes anything that
                 # ends in a forward slash as a subdir
                 # $(patsubst %/,%,$(filter %/, $(obj-y)))
                 subdirectories.add(unit_name)
-                if store_pcs:
-                    if (elem not in kbuild.token_pc): kbuild.token_pc[elem] = kbuild.T
-                    kbuild.subdir_pc[elem] = kbuild.token_pc[elem]
+                
+
 
 def extract(makefile_path,
             compilation_units,
@@ -1067,9 +775,7 @@ def extract(makefile_path,
             unconfigurable_units,
             extra_targets,
             clean_files,
-            c_file_targets,
-            unit_pcs,
-            subdir_pcs):
+            c_file_targets):
     debug("processing makefile", makefile_path)
     if os.path.isdir(makefile_path):
         subdir = makefile_path
@@ -1100,46 +806,19 @@ def extract(makefile_path,
 
     subdirectories = set()
 
-    if args.boot_strap:
-        # collect_units(kbuild,
-        #               obj,
-        #               set(["core-y", "core-m", "drivers-y", "drivers-m", "net-y", "net-m", "libs-y", "libs-m"]),
-        #               compilation_units,
-        #               subdirectories,
-        #               composites)
-        # print " ".join(subdirectories)
-        # exit(0)
-        toplevel = set()
-        for var in set(["core-y", "core-m", "drivers-y", "drivers-m", "net-y", "net-m", "libs-y", "libs-m"]):
-            toplevel.update(split_definitions(kbuild, var))
-        print " ".join([t for t in toplevel if t.endswith("/") and not t.startswith("-")])
-        exit(0)
-
-    collect_units(kbuild,
-                  "",
-                  set(["core-y", "core-m", "drivers-y", "drivers-m", "net-y", "net-m", "libs-y", "libs-m", "head-y", "head-m"]),
-                  compilation_units,
-                  subdirectories,
-                  composites)
-
     collect_units(kbuild,
                   obj,
                   set([ "obj-y", "obj-m" ]),
                   compilation_units,
                   subdirectories,
-                  composites,
-                  True and args.get_presence_conditions)
-
-    for v in set([ "subdir-y", "subdir-m" ]):
-        for u in split_definitions(kbuild, v):
-            subdirectories.add(os.path.join(obj, u))
+                  composites)
 
     collect_units(kbuild,
                   obj,
                   set([ "lib-y", "lib-m" ]),
                   library_units,
-                  subdirectories,
-                  composites)
+                  None,
+                  None)
 
     pending_hostprog_composites = set([])
     for v in set([ "hostprogs-y", "hostprogs-m", "host-progs", "always" ]):
@@ -1192,21 +871,12 @@ def extract(makefile_path,
                     not x.endswith("-objs") and \
                     x != "host-progs":
                 unconfigurable_variables.add(x)
-            elif x.startswith(p[:-1]) and x.endswith("-"):
-                # also look in variables resulting from expansion of
-                # undefined config var
-                unconfigurable_variables.add(x)
     collect_units(kbuild,
                   obj,
                   unconfigurable_variables,
                   unconfigurable_units,
-                  unconfigurable_units,
-                  unconfigurable_units)
-    # subtract out compilation units that are configurable
-    unconfigurable_units.difference_update(compilation_units)
-    unconfigurable_units.difference_update(library_units)
-    unconfigurable_units.difference_update(composites)
-    unconfigurable_units.difference_update(subdirectories)
+                  None,
+                  None)
 
     # look for variable expansions or function calls in
     # compilation_units, subdirectories, and variable names
@@ -1218,28 +888,15 @@ def extract(makefile_path,
     elif args.table:
         kbuild.print_variables_table(kbuild.variables)
 
-    for v in kbuild.unit_pc.keys():
-        path = os.path.normpath(os.path.join(obj, v))
-        unit_pcs.append((path, kbuild.bdd_to_str(kbuild.unit_pc[v])))
-    for v in kbuild.subdir_pc.keys():
-        path = os.path.normpath(os.path.join(obj, v))
-        subdir_pcs.append((path, kbuild.bdd_to_str(kbuild.subdir_pc[v])))
-
     _pycudd.delete_DdManager(kbuild.mgr)
 
     return subdirectories
 
+match_unexpanded_variables = re.compile(r'.*\$\(.*\).*')
 def check_unexpanded_variables(l, desc):
     for x in l:
-        if contains_unexpanded(x):
+        if match_unexpanded_variables.match(x):
             warn("A " + desc + " contains an unexpanded variable or call", x)
-
-match_unexpanded_variables = re.compile(r'.*\$\(.*\).*')
-def contains_unexpanded(s):
-    if s != None and match_unexpanded_variables.match(s):
-        return True
-    else:
-        return False
 
 def main():
     """Find a covering set of configurations for the given
@@ -1255,8 +912,6 @@ def main():
     clean_files = set()
     c_file_targets = set()
     subdirectories = set()
-    unit_pcs = []
-    subdir_pcs = []
     subdirectories.add(args.makefile)
     while len(subdirectories) > 0:
         subdirectories.update(extract(subdirectories.pop(),
@@ -1268,9 +923,7 @@ def main():
                                       unconfigurable_units,
                                       extra_targets,
                                       clean_files,
-                                      c_file_targets,
-                                      unit_pcs,
-                                      subdir_pcs))
+                                      c_file_targets))
         if not args.recursive:
             break
     if args.pickle:
@@ -1281,10 +934,7 @@ def main():
                      extra_targets,
                      clean_files,
                      c_file_targets,
-                     subdirectories,
-                     composites,
-                     unit_pcs,
-                     subdir_pcs), sys.stdout)
+                     subdirectories), sys.stdout)
     else:
         print compilation_units
         print library_units
@@ -1294,12 +944,7 @@ def main():
         print clean_files
         print c_file_targets
         print subdirectories
-        for v, b in unit_pcs:
-            print v, b
-        for v, b in subdir_pcs:
-            print v, b
     debug(len(compilation_units), "compilation unit(s)")
-    debug(len(library_units), "library unit(s)")
 
 if __name__ == '__main__':
     main()

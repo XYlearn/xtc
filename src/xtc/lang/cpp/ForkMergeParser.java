@@ -25,7 +25,6 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Set;
 import java.util.Comparator;
 import java.util.PriorityQueue;
 import java.util.List;
@@ -34,7 +33,6 @@ import java.util.ArrayList;
 
 import xtc.tree.Node;
 import xtc.tree.GNode;
-import xtc.tree.Location;
 
 import xtc.util.Pair;
 
@@ -56,7 +54,7 @@ import xtc.lang.cpp.PresenceConditionManager.PresenceCondition;
  * This class expands macros and processes header files
  *
  * @author Paul Gazzillo
- * @version $Revision: 1.272 $
+ * @version $Revision: 1.263 $
  */
 public class ForkMergeParser {
   /** The name of the AST conditional node. */
@@ -79,8 +77,7 @@ public class ForkMergeParser {
   final private static String[] ERRMSG = {
     "no default action",
     "invalid table entry",
-    "fatal preprocessing error",
-    "error directive"};
+    "fatal preprocessing error"};
 
   /** Error code for no default action.  */
   final private static int NODEFAULT = 0;
@@ -97,19 +94,8 @@ public class ForkMergeParser {
   /** The state number of the the starting state. */
   final private static int STARTSTATE = 0;
 
-  /**
-   * Turn new error handling on.  Experimental and currently broken!
-   * This will preserve the semantic value subparsers in the error
-   * state with an Syntax.Error object.  The subparser will be merged
-   * instead of thrown away.
-   */
+  /** Turn new error handling on. */
   final private static boolean NEW_ERROR_HANDLING = false;
-
-  /** Save the disjunction of invalid configurations. */
-  final private static boolean SAVE_ERROR_COND = false;
-
-  /** The disjunction of invalid configurations. */
-  private PresenceCondition invalid;
 
   /** The parse tables. */
   private ParseTables tables;
@@ -187,6 +173,9 @@ public class ForkMergeParser {
   /** Show errors. */
   private boolean showErrors = true;
 
+  /** Ignore parsing errors */
+  private boolean ignoreErrors = false;
+
   /** Show accepts. */
   private boolean showAccepts = false;
 
@@ -198,12 +187,6 @@ public class ForkMergeParser {
 
   /** Turn parser statistics collection on. */
   private boolean parserStatistics = false;
-
-  /** The productions to track for granularity. */
-  private Set<String> trackedProductions;
-
-  /** Turn condition granularity collection on. */
-  private boolean conditionGranularity = false;
 
   /** Turn the subparser kill-switch on. */
   private boolean killswitch = false;
@@ -253,10 +236,6 @@ public class ForkMergeParser {
     this.nestedConditionals = new LinkedList<Integer>();
 
     skipConditionalCache = new HashMap<Integer, OrderedSyntax>();
-
-    if (SAVE_ERROR_COND) {
-      this.invalid = presenceConditionManager.new PresenceCondition(false);
-    }
   }
 
   /**
@@ -350,28 +329,6 @@ public class ForkMergeParser {
   }
 
   /**
-   * Set productions to track for conditionals.
-   *
-   * @param trackedProductions The productions to track.
-   */
-  public void conditionGranularity(boolean b) {
-    trackedProductions = new HashSet<String>();
-    trackedProductions.add("Declaration");
-    trackedProductions.add("LabeledStatement");    // Statements
-    trackedProductions.add("CompoundStatement");
-    trackedProductions.add("ExpressionStatement");
-    trackedProductions.add("SelectionStatement");
-    trackedProductions.add("IterationStatement");
-    trackedProductions.add("JumpStatement");
-    trackedProductions.add("AssemblyStatement");
-    trackedProductions.add("AssemblyDefinition");  // ExternalDeclarations
-    trackedProductions.add("FunctionPrototype");
-    trackedProductions.add("FunctionOldPrototype");
-    trackedProductions.add("EmptyDefinition");
-    conditionGranularity = b;
-  }
-
-  /**
    * Show parsing actions taken.  Default is off.
    *
    * @param b True is on.
@@ -387,6 +344,15 @@ public class ForkMergeParser {
    */
   public void showErrors(boolean b) {
     showErrors = b;
+  }
+
+  /**
+   * Ignore parsing errors.  Default is off.
+   *
+   * @param b True is on.
+   */
+  public void ignoreErrors(boolean b) {
+    ignoreErrors = b;
   }
 
   /**
@@ -502,28 +468,10 @@ public class ForkMergeParser {
       int result = o1.lookahead.token.order - o2.lookahead.token.order;
 
       if (0 == result) {
-        // // Handle errors last to allow merging with shifting parsers
-        // if (ParsingAction.ERROR == o1.lookahead.action) {
-        //   return 1;
-        // } else if (ParsingAction.ERROR == o2.lookahead.action) {
-        //   return -1;
-        // }
-
-        // // Do early reduces by default.
-        // if (ParsingAction.SHIFT == o1.lookahead.action) {
-        //   return 1;
-        // } else if (ParsingAction.SHIFT == o2.lookahead.action) {
-        //   return -1;
-        // }
-
-        switch (o1.lookahead.action) {
-        case SHIFT:
-        case ERROR:
+        // Do early reduces by default.
+        if (ParsingAction.SHIFT == o1.lookahead.action) {
           return 1;
-        }
-        switch (o2.lookahead.action) {
-        case SHIFT:
-        case ERROR:
+        } else if (ParsingAction.SHIFT == o2.lookahead.action) {
           return -1;
         }
       }
@@ -589,8 +537,7 @@ public class ForkMergeParser {
         && earliestToken.syntax.toConditional().tag()
         == ConditionalTag.START
         || earliestToken.syntax.kind() == Kind.LANGUAGE
-        || earliestToken.syntax.kind() == Kind.EOF
-        || earliestToken.syntax.kind() == Kind.ERROR;
+        || earliestToken.syntax.kind() == Kind.EOF;
 
       // True when at least one subparser reduced in this iteration.
       // Used to delay shifts when the earlyReduce optimization is on.
@@ -610,16 +557,15 @@ public class ForkMergeParser {
       if (showLookaheads) {
         System.err.println("subparser lookaheads");
         for (Subparser s : subparsers) {
-          System.err.println(s.stack.state + " " + s.lookahead);
+          System.err.println(s.lookahead);
         }
       }
 
       // Process each subparser on that is at earliestToken.
       while (subparsers.size() > 0 && (subparsers.peek().lookahead.token.order
                                        - earliestToken.order) == 0) {
-        if (optimizeEarlyReduce && seenReduce &&
-            (subparsers.peek().lookahead.getAction() == ParsingAction.SHIFT ||
-             subparsers.peek().lookahead.getAction() == ParsingAction.ERROR)) {
+        if (optimizeEarlyReduce && seenReduce && subparsers.peek().lookahead
+            .getAction() == ParsingAction.SHIFT) {
           // Do reduces first.
           break;
         }
@@ -813,16 +759,6 @@ public class ForkMergeParser {
                 }
               }
 
-              if (conditionGranularity) {
-                if (subparser.lookahead.token.syntax.kind() == Kind.CONDITIONAL
-                    && subparser.lookahead.token.syntax.toConditional().tag()
-                    == ConditionalTag.START) {
-                  subparser.stack.conditionalAfter = true;
-                  subparser.stack.afterSet.add(subparser.lookahead.token.
-                                               syntax.getLocation() + "");
-                }
-              }
-
               if (hasParsingContext
                   && subparser.scope.shouldReclassify(followSet)) {
                 subparser.lookahead.clearAction();
@@ -933,10 +869,6 @@ public class ForkMergeParser {
       throw new RuntimeException("need to handle remaining error subparsers");
     }
 
-    if (SAVE_ERROR_COND) {
-      System.err.println(this.invalid.satOne());
-    }
-
     if (accepted.size() == 0) {
       return null;
     } else {
@@ -980,12 +912,6 @@ public class ForkMergeParser {
             + subparser.lookahead.token.syntax.getLocation());
     }
 
-    if (SAVE_ERROR_COND) {
-      PresenceCondition or = this.invalid.or(subparser.getPresenceCondition());
-      this.invalid.delRef();
-      this.invalid = or;
-    }
-
     if (NEW_ERROR_HANDLING) {
       // Move to the next token or start conditional.
       subparser.lookahead.token
@@ -1016,6 +942,11 @@ public class ForkMergeParser {
 
       return true;
     } else {
+//      if (ignoreErrors) {
+//        subparser.lookahead.token = subparser.lookahead.token.getNext();
+//        subparser.lookahead.action = ParsingAction.SHIFT;
+//        return true;
+//      }
       // Free presence conditions.
       subparser.lookahead.presenceCondition.delRef();
       subparser.presenceCondition.delRef();
@@ -1179,6 +1110,7 @@ public class ForkMergeParser {
             // results.
               
             subparser.lookahead.clearAction();
+
 
             // Re-add the subparser to the ordered set to update its
             // position in the set.
@@ -1589,7 +1521,6 @@ public class ForkMergeParser {
     presenceCondition.addRef();
     while (true) {
       switch (a.syntax.kind()) {
-      case ERROR:
       case EOF:
       case LANGUAGE:
         // Add token to the follow set, or update an existing token's
@@ -1829,9 +1760,6 @@ public class ForkMergeParser {
   /** This holds error subparsers. */
   private LinkedList<Subparser> errorParsers = new LinkedList<Subparser>();
 
-  /** This holds shifting subparsers. */
-  private LinkedList<Subparser> shiftParsers = new LinkedList<Subparser>();
-
   /**
    * Merge any error subparsers into non-error subparsers.
    *
@@ -1846,47 +1774,40 @@ public class ForkMergeParser {
         errorParsers.add(subset.get(i));
         subset.remove(i);
         i--;
-      } else if (ParsingAction.SHIFT == subset.get(i).lookahead.action) {
-        shiftParsers.add(subset.get(i));
       }
     }
 
-    if (shiftParsers.size() == 0) {
-      subset.addAll(errorParsers);
-    } else {
-      for (Subparser e : errorParsers) {
-        StackFrame mergeFrame = null;
-        Subparser mergeParser = null;
+    if (errorParsers.size() > 0) {
+      if (subset.size() == 0) {
+        subset.addAll(errorParsers);
+      } else {
+        for (Subparser e : errorParsers) {
+          StackFrame mergeFrame = null;
+          Subparser mergeParser = null;
 
-        for (Subparser s : shiftParsers) {
-          StackFrame estate = e.stack;
-          StackFrame sstate = s.stack;
+          for (Subparser s : subset) {
+            StackFrame estate = e.stack;
+            StackFrame sstate = s.stack;
 
-          if (sstate.getHeight() > estate.getHeight()) {
-            sstate = sstate.get(sstate.getHeight() - estate.getHeight());
-          } else {
-            estate = estate.get(estate.getHeight() - sstate.getHeight());
+            if (sstate.getHeight() > estate.getHeight()) {
+              sstate = sstate.get(sstate.getHeight() - estate.getHeight() + 1);
+            } else {
+              estate = estate.get(estate.getHeight() - sstate.getHeight() + 1);
+            }
+
+            while (sstate != estate) {
+              sstate = sstate.next;
+              estate = estate.next;
+            }
+
+            if (null == mergeFrame
+                || mergeFrame.getHeight() < sstate.getHeight()) {
+              mergeFrame = sstate;
+              mergeParser = s;
+            }
           }
 
-          // while (sstate != estate) {
-          //   sstate = sstate.next;
-          //   estate = estate.next;
-          // }
-
-          if (null == mergeFrame
-              || mergeFrame.getHeight() < sstate.getHeight()) {
-            mergeFrame = sstate;
-            mergeParser = s;
-          }
-        }
-
-        // Merge the semantic values.
-        if (null != mergeFrame.value && ((Node )mergeFrame.value).getName().endsWith("List")) {
-          GNode conditionalNode = GNode.create(CHOICE_NODE_NAME);
-          conditionalNode.add(e.presenceCondition.addRef());
-          conditionalNode.add(new Error("parsing error", true));
-          ((Node) mergeFrame.value).add(conditionalNode);
-        } else {
+          // Merge the semantic values.
           GNode conditionalNode = GNode.create(CHOICE_NODE_NAME);
           if (null != mergeFrame.value) {
             conditionalNode.add(mergeParser.presenceCondition.addRef());
@@ -1895,33 +1816,33 @@ public class ForkMergeParser {
           conditionalNode.add(e.presenceCondition.addRef());
           conditionalNode.add(new Error("parsing error", true));
           mergeFrame.value = conditionalNode;
-        }
 
-        // OR the presence conditions.
-        PresenceCondition or
-          = mergeParser.presenceCondition.or(e.presenceCondition);
-        mergeParser.presenceCondition.delRef();
-        mergeParser.presenceCondition = or;
+          // OR the presence conditions.
+          PresenceCondition or
+            = mergeParser.presenceCondition.or(e.presenceCondition);
+          mergeParser.presenceCondition.delRef();
+          mergeParser.presenceCondition = or;
 
-        // Update the subparser's head.
-        mergeParser.lookahead.presenceCondition.delRef();
-        if (! mergeParser.lookahead.isSet()) {
-          mergeParser.lookahead.presenceCondition = or.addRef();
-        } else {
-          // Clear the subparser's multi-head.
-          ((LookaheadSet) mergeParser.lookahead).free();
-          mergeParser.lookahead
-            = new Lookahead(mergeParser.lookahead.token, or.addRef());
-        }
-        e.lookahead.presenceCondition.delRef();
-        e.presenceCondition.delRef();
-        if (hasParsingContext) {
-          e.scope.free();
+          // Update the subparser's head.
+          mergeParser.lookahead.presenceCondition.delRef();
+          if (! mergeParser.lookahead.isSet()) {
+            mergeParser.lookahead.presenceCondition = or.addRef();
+          } else {
+            // Clear the subparser's multi-head.
+            ((LookaheadSet) mergeParser.lookahead).free();
+            mergeParser.lookahead
+              = new Lookahead(mergeParser.lookahead.token, or.addRef());
+          }
+
+          e.lookahead.presenceCondition.delRef();
+          e.presenceCondition.delRef();
+          if (hasParsingContext) {
+            e.scope.free();
+          }
         }
       }
+      errorParsers.clear();
     }
-    shiftParsers.clear();
-    errorParsers.clear();
 
     return subset;
   }
@@ -1941,7 +1862,7 @@ public class ForkMergeParser {
     if (NEW_ERROR_HANDLING) {
       // First merge errors.
       subset = mergeErrors(subset);
-      
+
       // Stop merging if all subparsers are errors.  Since mergeErrors
       // ensures that all or no subparsers are error subparsers, only
       // check the first one.
@@ -1963,23 +1884,20 @@ public class ForkMergeParser {
 
         // Check merge criteria: (1) at the same token, (2) tokens are
         // same type, (3) have the same parsing state, (4) their
-        // presence conditions are not mutually exclusive, (5) the
-        // subparsers weren't just forked, (6) the parsing context, or
-        // scopes, can be merged, e.g., same nesting level, (7) the
-        // grammar node is considered complete, i.e., non-complete
-        // nodes shouldn't be children of conditional nodes
+        // presence conditions are not mutually exclusive, and (5) the
+        // subparsers weren't just forked.
         boolean sameTokenType
           = (subparser.lookahead.token.syntax.kind() == Kind.LANGUAGE
              && subparser.lookahead.token.syntax.toLanguage().tag()
              == compareParser.lookahead.token.syntax.toLanguage().tag())
           || subparser.lookahead.token.syntax.kind() != Kind.LANGUAGE;
 
-        if (sameTokenType                                          // (1,2)
-            && semanticValues.isComplete(subparser.stack.symbol)   // (7)
+        if (sameTokenType
+            && semanticValues.isComplete(subparser.stack.symbol)
             && (! hasParsingContext
-                || subparser.scope.mayMerge(compareParser.scope))  // (6)
-            && subparser.stack.isMergeable(compareParser.stack)    // (3,4)
-            && subparser.stack != compareParser.stack) {           // (5)
+                || subparser.scope.mayMerge(compareParser.scope))
+            && subparser.stack.isMergeable(compareParser.stack)
+            && subparser.stack != compareParser.stack) {
           // Move subparser to merge list.
           mergedParsers.addLast(compareParser);
           subset.remove(inner);
@@ -2377,33 +2295,13 @@ public class ForkMergeParser {
       semanticValues.newName(symbol) : tables.yytname[symbol];
 
     if (showActions) {
-      System.err.println("reducing " + nodeName + " with " + yylen + " frames");
+      System.err.println("reducing " + nodeName);
     }
-
-    boolean conditionalAfter = false;
-    boolean conditionalInside = false;
-    Set<String> afterSet = new HashSet<String>();
-    Set<String> insideSet = new HashSet<String>();
 
     // Get the semantic values from the stack.
     StackFrame topState = subparser.stack;
     Pair<Object> values = Pair.<Object>empty();
     for (int i = 0; i < yylen; i++) {
-      if (conditionGranularity) {
-        if (0 == i) {
-          conditionalAfter
-            = topState.conditionalAfter || topState.conditionalInside;
-          afterSet.clear();
-          afterSet.addAll(topState.afterSet);
-          afterSet.addAll(topState.insideSet);
-        } else {
-          conditionalInside = conditionalInside
-            || topState.conditionalAfter || topState.conditionalInside;
-          insideSet.addAll(topState.afterSet);
-          insideSet.addAll(topState.insideSet);
-        }
-      }
-
       // Don't bother adding null semantic values as children.
       if (null != topState.value) {
         values = new Pair<Object>(topState.value, values);
@@ -2411,7 +2309,7 @@ public class ForkMergeParser {
       topState = topState.next;
     }
 
-    // Get the GOTO state.
+    // Get the GOTO  state.
     int yystate = tables.yypgoto[symbol - tables.YYNTOKENS] + topState.state;
     if (0 <= yystate && yystate <= tables.YYLAST
         && tables.yycheck[yystate] == topState.state) {
@@ -2477,35 +2375,11 @@ public class ForkMergeParser {
       throw new UnsupportedOperationException("unsupported node type");
     }
 
-    if (hasSemanticActions) {
-      value = semanticActions.action(production, subparser, value);
-    }
-
     // Push the new state.
     subparser.stack = new StackFrame(yystate, symbol, value, topState);
 
-    if (conditionGranularity) {
-      subparser.stack.conditionalAfter = conditionalAfter;
-      subparser.stack.conditionalInside = conditionalInside;
-      subparser.stack.afterSet = afterSet;
-      subparser.stack.insideSet = insideSet;
-    }
-
-    if (conditionGranularity
-        && conditionalInside
-        && trackedProductions.contains(nodeName)) {
-      // Location location = getProductionLocation(value);
-      Location location = getProductionLocation(value);
-
-      // Emit the marker.
-      System.err.println(String.format("conditional_inside %s %s \"%s\"",
-                                       nodeName,
-                                       location,
-                                       joinSet(insideSet, ",")));
-    }
-
     if (hasSemanticActions) {
-      // Handle semantic action node.
+      // Handle semantic action.
       semanticActions.dispatch(symbol, subparser);
     }
   }
@@ -2577,8 +2451,6 @@ public class ForkMergeParser {
           }
         }
       }
-    } else if (x.token.syntax.kind() == Kind.ERROR) {
-      x.setAction(ParsingAction.ERROR, ERRDIRECTIVE);
     } else {
       throw new UnsupportedOperationException("parser does not handle " +
                                               "any other tokens besides " +
@@ -2956,12 +2828,6 @@ public class ForkMergeParser {
     /** True when the semantic value has a conditional in it. */
     private boolean conditionalInside;
 
-    /** Information about conditionals interacting with semantic values. */
-    private Set<String> afterSet;
-
-    /** Information about conditionals interacting with semantic values. */
-    private Set<String> insideSet;
-
     /**
      * Make a new state.
      *
@@ -2976,8 +2842,6 @@ public class ForkMergeParser {
       this.next = next;
       this.conditionalAfter = false;
       this.conditionalInside = false;
-      this.afterSet = new HashSet<String>();
-      this.insideSet = new HashSet<String>();
 
       if (null == next) {
         height = 1;
@@ -3184,7 +3048,7 @@ public class ForkMergeParser {
     }
 
     /**
-     * Check whether two parsing states can merge.
+     * Check whether two parsing state can merge.
      *
      * @param s The first parsing state.
      * @param t The second parsing state.
@@ -3216,47 +3080,5 @@ public class ForkMergeParser {
 
   private void error(String msg) {
     System.err.println("error: " + msg);
-  }
-
-  /**
-   * Get location of a production given its value.
-   *
-   * @param value The value of the production.
-   * @return The location.
-   */
-  static Location getProductionLocation(Object value) {
-    if (value instanceof Node) {
-      for (Object o : (Node) value) {
-        Location location = getProductionLocation(o);
-
-        if (null != location) {
-          return location;
-        }
-      }
-
-      return ((Node) value).getLocation();
-    } else {
-      return null;
-    }
-  }
-
-  /**
-   * Concatenate all elements of a set separated with a given
-   * delimiter.
-   *
-   * @param set The set to join.
-   * @param delim The delimiter.
-   * @return A string of all elements.
-   */
-  private static <E> String joinSet(Set<E> set, String delim) {
-    String ret = "";
-    String d = "";
-    
-    for (E e : set) {
-      ret += d + e.toString();
-      d = delim;
-    }
-
-    return ret;
   }
 }

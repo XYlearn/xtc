@@ -172,7 +172,7 @@ public class TreeComparator {
     // Expand SuperC AST's lists, but not ExpressionList, which is a
     // Node in the Rats! grammar.
     if (! g.getName().equals("ExpressionList")
-        && CValues
+        && CSemanticValues
         .getInstance().getValueType(symbols.indexOf(g.getName()))
         == SemanticValues.ValueType.LIST) {
       System.err.println("is list " + a.getName());

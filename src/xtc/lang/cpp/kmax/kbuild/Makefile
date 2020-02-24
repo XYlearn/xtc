@@ -1,23 +1,7 @@
-# Kmax
-# Copyright (C) 2012-2015 Paul Gazzillo
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 TMPDIR := /tmp
 PYMAKE := http://hg.mozilla.org/users/bsmedberg_mozilla.com/pymake/archive/default.tar.bz2
 
-all: pymake/
+all: pymake/ make/
 
 pymake/:
 ifeq ($(shell which wget > /dev/null; echo $$?), 0)
@@ -35,5 +19,10 @@ endif
 	$(RM) $(TMPDIR)/default.tar.bz2
 	$(RM) -R $(TMPDIR)/pymake-default
 
+make/:
+	git clone git://git.savannah.gnu.org/make.git make
+	(cd make/ && git checkout 450b7e1a3d3f0b9c84f9b8f6909fa844afacbec5 && git apply ../make.patch)
+
 clobber:
 	$(RM) -R pymake/
+	$(RM) -R make/

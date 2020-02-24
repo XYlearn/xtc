@@ -104,9 +104,6 @@
 //%token DOTSTAR
 //%token DCOLON
 
-%{
-%}
-
 %%
 
 ConstantExpression: /** passthrough, complete **/
@@ -131,8 +128,19 @@ CharacterConstant:  /** complete */
         ;
 
 /* EXPRESSIONS */
+FunctionCall:
+        PrimaryIdentifier LPAREN FunctionCallParameters RPAREN
+        ;
+
+FunctionCallParameters:
+        |
+        | ConstantExpression
+        | PrimaryIdentifier COMMA ConstantExpression
+        ;
+
 PrimaryExpression:  /** passthrough, complete **/
         PrimaryIdentifier
+        | FunctionCall
         | Constant
         | LPAREN ConstantExpression RPAREN
         ;
@@ -348,11 +356,3 @@ Word:  /** passthrough **/
         | __VOLATILE
         | __VOLATILE__
         ;
-
-%%
-
-  public void CheckDefined(Subparser subparser) {
-    if (! "defined".equals(subparser.stack.get(2).value.toString())) {
-      subparser.lookahead.setError();
-    }
-  }

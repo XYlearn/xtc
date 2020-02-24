@@ -258,6 +258,7 @@ ifdef JAVA_DEV_ROOT
 	$(CP) $(CLASS_DIR)/xtc/util/Pair*.class \
               $(CLASS_DIR)/xtc/util/Action.class \
               $(CLASS_DIR)/xtc/util/State.class \
+              $(CLASS_DIR)/xtc/util/NodeUtilities.class \
               $(CLASS_DIR)/xtc/util/Utilities.class \
               $(JAR_TMP)/xtc/util
 	$(CP) $(CLASS_DIR)/xtc/tree/Location.class \

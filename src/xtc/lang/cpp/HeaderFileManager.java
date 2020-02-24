@@ -62,7 +62,7 @@ import xtc.tree.Location;
  * headers.
  *
  * @author Paul Gazzillo
- * @version $Revision: 1.93 $
+ * @version $Revision: 1.91 $
  */
 public class HeaderFileManager implements Iterator<Syntax> {
   /** Quote include directories from the CPP tool */
@@ -103,12 +103,6 @@ public class HeaderFileManager implements Iterator<Syntax> {
 
   /** Do timing. */
   private boolean timing = false;
-
-  /** Show header chains. */
-  private boolean showHeaderChains = false;
-
-  /** The header chains to show. */
-  private List<String> headerChain = null;
 
   /**
    * The names of headers that don't have guards.  This avoids having
@@ -179,33 +173,6 @@ public class HeaderFileManager implements Iterator<Syntax> {
    */
   public void doTiming(boolean b) {
     timing = b;
-  }
-
-  /** Show header chains.
-   *
-   * @param headerChain is the list of header chains to show.
-   */
-  public void showHeaderChains(List<String> headerChain) {
-    this.showHeaderChains = true;
-    this.headerChain = headerChain;
-  }
-
-  /** Print header chains.
-   *
-   * @param headerName The header to look for.
-   */
-  private void printHeaderChains(String headerName) {
-    if (this.showHeaderChains) {
-      for (String s : this.headerChain) {
-        if (headerName.contains(s)) {
-          System.err.println("headerChain " + s);
-          for (Include i : this.includes) {
-            System.err.println(i.getName());
-          }
-          System.err.println();
-        }
-      }
-    }
   }
   
   /**
@@ -318,7 +285,6 @@ public class HeaderFileManager implements Iterator<Syntax> {
       if (! guarded) {
         includes.push(include);
         include = header;
-        if (this.showHeaderChains) printHeaderChains(include.getName());
         
         // Return a line marker for the beginning of the include.
         LinkedList<Language<?>> linemarker = new LinkedList<Language<?>>();
@@ -493,7 +459,8 @@ public class HeaderFileManager implements Iterator<Syntax> {
           done = true;
           switch (syntax.kind()) {
           case DIRECTIVE:
-            if (syntax.toDirective().tag() == DirectiveTag.DEFINE) {
+            switch(syntax.toDirective().tag()) {
+            case DEFINE: {
               state++;
 
               Directive define = syntax.toDirective();
@@ -512,6 +479,21 @@ public class HeaderFileManager implements Iterator<Syntax> {
                   done = false;
                 }
               }
+            }
+            break;
+
+            case IF:
+              // Fall through.
+            case IFDEF:
+              // Fall through.
+            case IFNDEF:
+              nested++;
+              done = false;
+              break;
+
+            case ENDIF:
+              nested--;
+              done = false;
             }
             break;
 
@@ -592,11 +574,13 @@ public class HeaderFileManager implements Iterator<Syntax> {
       //If the header is guarded and we have not seen this macro
       //before.
 
-      if (header.hasGuard() && ! macroTable.contains(header.getGuard())) {
+      if (header.hasGuard()) {
         if (! guards.containsKey(header.file.toString())) {
           guards.put(header.file.toString(), header.getGuard());
         }
-        macroTable.rectifyGuard(header.guardMacro, presenceConditionManager);
+        if (! macroTable.contains(header.getGuard())) {
+          macroTable.rectifyGuard(header.guardMacro, presenceConditionManager);
+        }
       } else {
         // The header does not have a guard macro or the guard macro
         // has already been used as a macro before.
@@ -887,6 +871,11 @@ public class HeaderFileManager implements Iterator<Syntax> {
             } catch (IOException e) {
               e.printStackTrace();
               throw new RuntimeException();
+            } catch (Error e) {
+              // try to print detailed error message
+              System.err.println("At " + file.getPath());
+              e.printStackTrace();
+              throw  new RuntimeException();
             }
             return syntax;
           }
@@ -1163,9 +1152,7 @@ public class HeaderFileManager implements Iterator<Syntax> {
               continue;
 
             } else {
-              return new Conditional(ConditionalTag.START,
-                                     presenceConditions.get(i),
-                                     includes.peek().getLocation());
+              return new Conditional(ConditionalTag.START, presenceConditions.get(i));
             }
           }
         }  // While invalid pfile.
@@ -1196,9 +1183,7 @@ public class HeaderFileManager implements Iterator<Syntax> {
           // Make it null so we can move on in the next scan.
           pfile = null;
           
-          syntax = new Conditional(ConditionalTag.END,
-                                   null,
-                                   includes.peek().getLocation());
+          syntax = new Conditional(ConditionalTag.END, null);
         }
        
         location = syntax.getLocation();

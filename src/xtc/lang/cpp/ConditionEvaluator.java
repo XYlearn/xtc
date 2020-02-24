@@ -19,8 +19,8 @@
 package xtc.lang.cpp;
 
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.Set;
 
 import xtc.tree.GNode;
 import xtc.tree.Node;
@@ -72,14 +72,8 @@ public class ConditionEvaluator {
   /** Setting that pulls all undefined macros to false and empty. */
   private boolean pullUndefinedFalse = false;
 
-  /** An optional set of free configs seen. */
-  private Set<String> seenConfigs = null;
-
-  /** Restrict free macros to the given prefix. */
-  private boolean enableRestrictPrefix = false;
-
-  /** The prefix to restrict free macros to. */
-  private String restrictPrefix = null;
+  /** List of filters to check whether a string macro is configuration */
+  private List<IsConfiguration> configurationFilters = new ArrayList<>();
 
   /**
    * Set the pullUndefinedFalse flag.
@@ -88,35 +82,6 @@ public class ConditionEvaluator {
    */
   public void setPullUndefinedFalse(boolean b) {
     this.pullUndefinedFalse = b;
-  }
-
-  /**
-   * Save free configs to the given list.
-   *
-   * @param seenConfigs The set of free configs.
-   */
-  public void setSeenConfigs(Set<String> seenConfigs) {
-    this.seenConfigs = seenConfigs;
-  }
-
-  /** Stop saving free configs. */
-  public void unsetSeenConfigs() {
-    this.seenConfigs = null;
-  }
-
-  /** 
-   * Restrict free macros to the given prefix.
-   *
-   * @param The prefix to restrict or null for no restriction.
-   */
-  public void restrictPrefix(String prefix) {
-    if (null == prefix) {
-      enableRestrictPrefix = false;
-      this.restrictPrefix = null;
-    } else {
-      enableRestrictPrefix = true;
-      this.restrictPrefix = prefix;
-    }
   }
 
   /**
@@ -166,11 +131,23 @@ public class ConditionEvaluator {
   public BDD evaluate(Node ast) {
     nonboolean = false;
     dostring = false;
-    if (null == ast) {
-      return B.zero();
-    } else {
-      return ensureBDD(visitor.dispatch(ast));
+    return ensureBDD(visitor.dispatch(ast));
+  }
+
+  /**
+   * register a filter to identify configuration
+   * @param filter Filter to register
+   */
+  public void registerConfigurationFilter(IsConfiguration filter) {
+    configurationFilters.add(filter);
+  }
+
+  public boolean isConfiguration(String parameter) {
+    boolean isConfiguration = false;
+    for (IsConfiguration filter: configurationFilters) {
+      isConfiguration = isConfiguration || filter.check(parameter);
     }
+    return isConfiguration;
   }
 
   /**
@@ -203,20 +180,16 @@ public class ConditionEvaluator {
 
       /** Process primary identifier. */
       public Object visitPrimaryIdentifier(GNode n) {
-        // if (enableRestrictPrefix && ! n.getString(0).startsWith(restrictPrefix)) {
-        //   return "";
-        // }
         // if (pullUndefinedFalse) {
         //   return "";
         // }
-        String identifierName = n.getString(0);
-        if (macroTable.getConfigurationVariables()) {
-          macroTable.configurationVariables.add(identifierName);
-        }
-        if (null != seenConfigs) {
-          seenConfigs.add(identifierName);
-        }
-        return identifierName;
+        // We assume not non-configuration macros are zeros
+        String parameter = n.getString(0);
+//        if (macroTable.contains(parameter) || isConfiguration(parameter)) {
+//          return parameter;
+//        }
+//        return "0";
+        return parameter;
       }
 
       /** Process a unary minus. */
@@ -234,8 +207,10 @@ public class ConditionEvaluator {
         if (a instanceof Long) {
           return - (Long) a;
         }
-        else {
+        else if (a instanceof String) {
           return "- " + parens(a);
+        } else {
+          return null;
         }
       }
 
@@ -633,6 +608,11 @@ public class ConditionEvaluator {
         //evaluate the defined operation, preserving configurations
         if (macroTable != null) {
           List<Entry> definitions = macroTable.get(parameter, presenceConditionManager);
+          // We filter configuration instead of regarding all
+          // non-defined macros as configuration
+          if (definitions == null && parameter.startsWith("__") && !isConfiguration(parameter)) {
+            return B.zero();
+          }
 
           if (definitions != null && definitions.size() > 0) {
             boolean hasDefined, hasUndefined, hasFree;
@@ -666,16 +646,6 @@ public class ConditionEvaluator {
               return B.zero(); //the constant false BDD
 
             } else {
-              if (null != seenConfigs) {
-                seenConfigs.add(PresenceConditionManager.Variables.
-                                createDefinedVariable(parameter));
-                for (Entry def : definitions) {
-                  if (def.macro.state == Macro.State.FREE) {
-                    seenConfigs.addAll(def.presenceCondition.getAllConfigs());
-                  }
-                }
-              }
-
               //partially defined in this presenceCondition
               BDD defined = B.zero();
               List<Token> tokenlist;
@@ -723,16 +693,6 @@ public class ConditionEvaluator {
             // variable.
             if (macroTable.getConfigurationVariables()) {
               macroTable.configurationVariables.add(parameter);
-            }
-
-            if (null != seenConfigs) {
-              seenConfigs.add(PresenceConditionManager.Variables.
-                              createDefinedVariable(parameter));
-            }
-
-            if (enableRestrictPrefix && ! parameter.startsWith(restrictPrefix)) {
-              // System.err.println("restricting " + parameter + " to undefined");
-              return B.zero();
             }
 
             if (pullUndefinedFalse) {
@@ -821,8 +781,15 @@ public class ConditionEvaluator {
       }
     }
     else if (o instanceof String) {
-      String s = parens(o);
-
+      String s = (String) o;
+      if (isInteger(s, 10)) {
+        if (Long.valueOf(s).equals(new Long(0))) {
+          return B.zero();
+        } else {
+          return B.one();
+        }
+      }
+      s = parens(o);
       return presenceConditionManager.getVariableManager().getVariable(s);
     }
     else if (o instanceof Boolean) {
@@ -843,5 +810,21 @@ public class ConditionEvaluator {
       
       return null;
     }
+  }
+
+  private static boolean isInteger(String s, int radix) {
+    if(s.isEmpty()) return false;
+    for(int i = 0; i < s.length(); i++) {
+      if(i == 0 && s.charAt(i) == '-') {
+        if(s.length() == 1) return false;
+        else continue;
+      }
+      if(Character.digit(s.charAt(i),radix) < 0) return false;
+    }
+    return true;
+  }
+
+  public interface IsConfiguration {
+    public boolean check(String parameter);
   }
 }

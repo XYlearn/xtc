@@ -115,6 +115,7 @@ import xtc.lang.cpp.Syntax.EOF;
 //%debug
 
 identifier=[a-zA-Z_][0-9a-zA-Z_]*
+// asmpp="."{identifier}
 
 /* Define floating point number constants. */
 exponent_part=([eE]|[pP])[-+]?[0-9]+
@@ -258,9 +259,9 @@ LANGUAGE(__TYPEOF,"__typeof")
 LANGUAGE(__TYPEOF__,"__typeof__")
 LANGUAGE(__VOLATILE,"__volatile")
 LANGUAGE(__VOLATILE__,"__volatile__")
-LANGUAGE(__INT128,"__int128")
 
 TEXT(IDENTIFIER,{identifier},true)
+// TEXT(ASMPP,{asmpp},false)
 PREPROCESSOR_TEXT(INTEGERconstant,NUMBER,{integer_constant},false)
 PREPROCESSOR_TEXT(OCTALconstant,NUMBER,{octal_constant},false)
 PREPROCESSOR_TEXT(HEXconstant,NUMBER,{hex_constant},false)

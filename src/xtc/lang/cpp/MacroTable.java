@@ -45,7 +45,7 @@ import xtc.lang.cpp.PresenceConditionManager.PresenceCondition;
  * (5) the table is optimized by having no duplicate definitions
  *
  * @author Paul Gazzillo
- * @version $Revision: 1.63 $
+ * @version $Revision: 1.62 $
  */
 public class MacroTable {
   /** The token creator. */
@@ -265,8 +265,7 @@ public class MacroTable {
                 a = macro.definition.get(i);
                 b = e.macro.definition.get(i);
                   
-                if (! a.getTokenText().equals(b.getTokenText())
-                    || ! a.flagsEqual(b)) {
+                if (! a.getTokenText().equals(b.getTokenText())) {
                   isdup = false;
                 }
               }
