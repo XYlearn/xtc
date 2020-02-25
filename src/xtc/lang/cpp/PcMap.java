@@ -1,5 +1,8 @@
 package xtc.lang.cpp;
 
+import com.google.gson.annotations.JsonAdapter;
+import com.google.gson.annotations.SerializedName;
+
 import java.util.*;
 
 /**
@@ -8,7 +11,8 @@ import java.util.*;
  */
 public class PcMap<T> {
 
-    private Map<PresenceConditionManager.PresenceCondition, Collection<T>> internMap = new HashMap<>();
+    @SerializedName("map")
+    protected Map<PresenceConditionManager.PresenceCondition, Collection<T>> internMap = new HashMap<>();
 
     /**
      * add a pc-feature to manager.

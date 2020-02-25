@@ -14,17 +14,18 @@ public class FeatureSuperC extends SuperC {
         if (runtime.test("extractFeature")) {
             ASTVisitor visitor = new ASTVisitor(presenceConditionManager, initialParsingContext.symtab);
             visitor.dispatch(ast, presenceConditionManager.new PresenceCondition(true));
-            PrintWriter writer = new PrintWriter(System.out);
-            FeatureManager.current().print(writer);
-            writer.close();
+            System.out.println(FeatureManager.current().toJson(runtime.test("prettyFeature")));
         }
     }
 
     @Override
     public void init() {
         super.init();
-        runtime.bool("extractFeature", "extractFeature", false,
-            "Extract features from AST and print result");
+        runtime
+          .bool("extractFeature", "extractFeature", false,
+            "Extract features from AST and print result")
+          .bool("prettyFeature", "prettyFeature", false,
+            "pretty print the extracted features");
     }
 
     public static void main(String[] args) {

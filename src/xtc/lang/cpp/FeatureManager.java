@@ -1,5 +1,7 @@
 package xtc.lang.cpp;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import javafx.util.Pair;
 
 import java.io.PrintWriter;
@@ -41,11 +43,17 @@ public class FeatureManager extends PcMap<Feature> {
         return currentFM;
     }
 
+    public String toJson(boolean pretty) {
+        Gson gson = new GsonBuilder().setPrettyPrinting().create();
+        return gson.toJson(internMap);
+    }
 
+    @Deprecated
     public void print(PrintWriter writer) {
         print(writer, "");
     }
 
+    @Deprecated
     public void print(PrintWriter writer, String indent) {
         String newIndent = indent + "     ";
 

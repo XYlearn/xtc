@@ -138,7 +138,9 @@ public class ASTVisitor extends Visitor {
         FeatureManager funcFeatures = FeatureManager.current();
         FeatureManager.load();
         if (!funcFeatures.isEmpty()) {
-            Object featureValue = new Pair<String, FeatureManager>(funcName, funcFeatures);
+            CParsingContext.Entry sym = symtab.map.get(funcName);
+            int argCount = sym.signature.args.length;
+            Object featureValue = new Feature.FunctionFeatureValue(funcName, argCount, funcFeatures);
             Feature feature = new Feature(Feature.FeatureType.FUNCTION, featureValue);
             FeatureManager.current().add(pc, feature);
         }
