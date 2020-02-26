@@ -23,6 +23,9 @@ public class ASTVisitor extends Visitor {
     /** local symbol table */
     protected CParsingContext.SymbolTable lsymtab = null;
 
+    /** presence condition of current function */
+    protected PresenceConditionManager.PresenceCondition funcPc;
+
     private PresenceConditionManager.PresenceCondition one;
 
     /**
@@ -33,6 +36,7 @@ public class ASTVisitor extends Visitor {
         this.pcm = pcm;
         this.symtab = symtab;
         one = pcm.new PresenceCondition(true);
+        funcPc = one;
         cache     =
             new LinkedHashMap<CacheKey, Method>(CACHE_CAPACITY, CACHE_LOAD, true) {
                 protected boolean removeEldestEntry(Map.Entry e) {
@@ -42,6 +46,10 @@ public class ASTVisitor extends Visitor {
         key       = new CacheKey(null, null);
         arguments = new Object[]   { null, null };
         argTypes  = new Class<?>[] { GNode.class, PresenceConditionManager.PresenceCondition.class };
+    }
+
+    public boolean inFunction() {
+        return lsymtab != null;
     }
 
     /**
@@ -96,7 +104,7 @@ public class ASTVisitor extends Visitor {
         } catch (NumberFormatException e) {}
         if (null != num && !num.equals(0)) {
             Feature feature = new Feature(Feature.FeatureType.NUMBER, num);
-            FeatureManager.current().add(pc, feature);
+            FeatureManager.current().add(pc.restrict(funcPc), feature);
         }
         return this;
     }
@@ -112,7 +120,6 @@ public class ASTVisitor extends Visitor {
         for (int i = 0; i < n.size(); i += 2) {
             PresenceConditionManager.PresenceCondition childPc = (PresenceConditionManager.PresenceCondition)n.get(i);
             Node child = n.getNode(i + 1);
-            // Dont need to and childPc with pc
             dispatch(child, childPc);
         }
         return this;
@@ -134,25 +141,31 @@ public class ASTVisitor extends Visitor {
         }
         FeatureManager.store();
         lsymtab = new CParsingContext.SymbolTable();
+        funcPc = pc;
         visit(n, pc);
         FeatureManager funcFeatures = FeatureManager.current();
         FeatureManager.load();
         if (!funcFeatures.isEmpty()) {
             CParsingContext.Entry sym = symtab.map.get(funcName);
-            int argCount = sym.signature.args.length;
-            Object featureValue = new Feature.FunctionFeatureValue(funcName, argCount, funcFeatures);
+            int argCount = -1;
+            if (sym != null && sym.signature != null) {
+                argCount = sym.signature.args.length;
+            }
+            Feature.FunctionFeatureValue featureValue = new Feature.FunctionFeatureValue(funcName, argCount, funcFeatures);
             Feature feature = new Feature(Feature.FeatureType.FUNCTION, featureValue);
             FeatureManager.current().add(pc, feature);
+            FeatureManager.funcs.put(funcName, featureValue);
         }
         // exit function scope, clear local symbol table
         lsymtab = null;
+        funcPc = one;
         return this;
     }
 
     /** Visit SimpleDeclarator to retrieve local declaration of symbols */
     public ASTVisitor visitSimpleDeclarator(GNode n, PresenceConditionManager.PresenceCondition pc) {
-        if (lsymtab != null) {
-            lsymtab.add(NodeUtilities.expandText(n, pc, null), false, pc);
+        if (inFunction()) {
+            lsymtab.add(NodeUtilities.expandText(n, pc, null), false, pc.restrict(funcPc));
         }
         return this;
     }
@@ -164,14 +177,14 @@ public class ASTVisitor extends Visitor {
           symtab.map.get(ident).getSymType().equals(CParsingContext.SymType.VARIABLE)) {
             // the function refers to a global variable
             Feature feature = new Feature(Feature.FeatureType.GVREF, ident);
-            FeatureManager.current().add(pc, feature);
+            FeatureManager.current().add(pc.restrict(funcPc), feature);
         }
         return this;
     }
 
     /** Visit StringLiteralList and extract String Features */
     public ASTVisitor visitStringLiteralList(GNode n, PresenceConditionManager.PresenceCondition pc) {
-        PcMap<Node> pcMap = NodeUtilities.selectNodes(pc, n, "*.Text");
+        PcMap<Node> pcMap = NodeUtilities.selectNodes(pc.restrict(funcPc), n, "*.Text");
         Set<Map.Entry<PresenceConditionManager.PresenceCondition, Collection<Node>>> entries = pcMap.entries();
         if (entries.size() == 1) {
             for (Map.Entry<PresenceConditionManager.PresenceCondition, Collection<Node>> entry: entries) {
@@ -200,7 +213,7 @@ public class ASTVisitor extends Visitor {
         if (pcNodes.size() == 1) {
             String funcName = NodeUtilities.expandText(pcNodes.iterator().next().getValue(), pc, null);
             Feature feature = new Feature(Feature.FeatureType.FUNCCALL, funcName);
-            FeatureManager.current().add(pc, feature);
+            FeatureManager.current().add(pc.restrict(funcPc), feature);
         }
         // visit children
         visit(n, pc);

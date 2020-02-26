@@ -571,7 +571,7 @@ public class PresenceConditionManager {
         boolean first;
         
         if (! firstTerm) {
-          writer.write(" || ");
+          writer.write(" or ");
         }
         
         firstTerm = false;
@@ -580,7 +580,7 @@ public class PresenceConditionManager {
         first = true;
         for (int i = 0; i < sat.length; i++) {
           if (sat[i] >= 0 && ! first) {
-            writer.write(" && ");
+            writer.write(" and ");
           }
           switch (sat[i]) {
             case 0:

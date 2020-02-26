@@ -2,11 +2,13 @@ package xtc.lang.cpp;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.annotations.Expose;
 import javafx.util.Pair;
 
 import java.io.PrintWriter;
 import java.io.Writer;
 import java.util.*;
+import java.util.stream.Stream;
 
 public class FeatureManager extends PcMap<Feature> {
     /** Storage to get from or put to stored feature manager */
@@ -14,6 +16,13 @@ public class FeatureManager extends PcMap<Feature> {
 
     /** Current FeatureManager */
     private static FeatureManager currentFM = new FeatureManager();
+
+    public static Map<String, Feature.FunctionFeatureValue> funcs = new HashMap<>();
+
+    public void toJson(Writer writer, boolean pretty) {
+        Gson gson = new GsonBuilder().setPrettyPrinting().create();
+        gson.toJson(internMap, internMap.getClass(), writer);
+    }
 
     /**
      * Store feature manager.
@@ -43,62 +52,4 @@ public class FeatureManager extends PcMap<Feature> {
         return currentFM;
     }
 
-    public String toJson(boolean pretty) {
-        Gson gson = new GsonBuilder().setPrettyPrinting().create();
-        return gson.toJson(internMap);
-    }
-
-    @Deprecated
-    public void print(PrintWriter writer) {
-        print(writer, "");
-    }
-
-    @Deprecated
-    public void print(PrintWriter writer, String indent) {
-        String newIndent = indent + "     ";
-
-        for (Map.Entry<PresenceConditionManager.PresenceCondition, Collection<Feature>> entry: entries()) {
-            Collection<Feature> features = entry.getValue();
-            PresenceConditionManager.PresenceCondition pc = entry.getKey();
-            writer.append(indent);
-            writer.append(pc.toString());
-            writer.append("\n");
-            writer.append(indent);
-            boolean hasFuncFeature = false;
-            for (Feature feature: features) {
-                if (feature.getType().equals(Feature.FeatureType.FUNCTION)) {
-                    hasFuncFeature = true;
-                    break;
-                }
-            }
-            writer.append("= [");
-            Iterator<Feature> iterator = features.iterator();
-            while (iterator.hasNext()) {
-                Feature feature = iterator.next();
-                boolean isFuncFeature = feature.getType().equals(Feature.FeatureType.FUNCTION);
-                if (isFuncFeature) {
-                    Pair<String, FeatureManager> pair = (Pair<String, FeatureManager>)feature.getValue();
-                    String funcName = pair.getKey();
-                    FeatureManager funcFeatures = pair.getValue();
-                    writer.append("\n");
-                    writer.append(newIndent);
-                    writer.append(funcName);
-                    writer.append(":\n");
-                    funcFeatures.print(writer, newIndent);
-                } else {
-                    writer.append(feature.toString());
-                }
-                if (iterator.hasNext()) {
-                    writer.append(", ");
-                } else {
-                    if (isFuncFeature) {
-                        writer.append(indent);
-                    } else {
-                    }
-                    writer.append("]");
-                    writer.append("\n");
-                }
-            }
-        }
-    }
 }
