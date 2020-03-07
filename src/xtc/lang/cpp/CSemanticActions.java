@@ -280,15 +280,15 @@ public class CSemanticActions extends CActionsInterface {
     // Get the specifier text
 //    String specifierText = NodeUtilities.expandText(a, subparser.getPresenceCondition());
     // get parameter types.
-    Collection<javafx.util.Pair<PresenceCondition, Node>> pcNodes =
+    Collection<NodeUtilities.PcEntry<Node>> pcNodes =
       NodeUtilities.selectNodesInOrder(subparser.getPresenceCondition(), (Node)b,
         "FunctionDeclarator.ParameterTypeListOpt.*.ParameterDeclaration");
     List<String> argList = new ArrayList<>();
     PresenceCondition pc = subparser.getPresenceCondition();
-    for (javafx.util.Pair<PresenceCondition, Node> pair : pcNodes) {
-      String arg = NodeUtilities.expandText(pair.getValue(), pc, n -> n.hasName("SimpleDeclarator"));
+    for (NodeUtilities.PcEntry<Node> pcEntry : pcNodes) {
+      String arg = NodeUtilities.expandText(pcEntry.getValue(), pc, n -> n.hasName("SimpleDeclarator"));
       if (arg.equals("void")) continue;
-      if(!pair.getKey().restrict(pc).isTrue()) {
+      if(!pcEntry.getPc().restrict(pc).isTrue()) {
         argList.add("?" + arg);
       } else {
         argList.add(arg);

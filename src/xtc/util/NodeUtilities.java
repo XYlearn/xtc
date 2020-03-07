@@ -8,6 +8,7 @@ import xtc.tree.Node;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
@@ -74,6 +75,59 @@ public class NodeUtilities {
     return sb.toString().trim();
   }
 
+  public static class PcEntry<T> {
+    private PresenceConditionManager.PresenceCondition pc;
+    private T value;
+
+    public PcEntry(PresenceConditionManager.PresenceCondition pc, T value) {
+      this.pc = pc;
+      this.value = value;
+    }
+
+    public int hashCode() {
+      int hashFirst = pc != null ? pc.hashCode() : 0;
+      int hashSecond = value != null ? value.hashCode() : 0;
+
+      return (hashFirst + hashSecond) * hashSecond + hashFirst;
+    }
+
+    public boolean equals(Object other) {
+      if (other instanceof PcEntry) {
+        PcEntry otherPair = (PcEntry) other;
+        return
+          ((  this.pc == otherPair.pc ||
+            ( this.pc != null && otherPair.pc != null &&
+              this.pc.equals(otherPair.pc))) &&
+            (  this.value == otherPair.value ||
+              ( this.value != null && otherPair.value != null &&
+                this.value.equals(otherPair.value))) );
+      }
+
+      return false;
+    }
+
+    public String toString()
+    {
+      return "(" + pc + ", " + value + ")";
+    }
+
+    public PresenceConditionManager.PresenceCondition getPc() {
+      return pc;
+    }
+
+    public void setPc(PresenceConditionManager.PresenceCondition pc) {
+      this.pc = pc;
+    }
+
+    public T getValue() {
+      return value;
+    }
+
+    public void setSecond(T value) {
+      this.value = value;
+    }
+  }
+
   /**
    * Select nodes according to the give path pattern.
    * @param pc presence condition.
@@ -81,7 +135,7 @@ public class NodeUtilities {
    * @param path The path pattern for matching node.
    * @return A new PcMap that contains lists of node matched with path pattern.
    */
-  public static Collection<javafx.util.Pair<PresenceConditionManager.PresenceCondition, Node>>
+  public static Collection<PcEntry<Node>>
   selectNodesInOrder(PresenceConditionManager.PresenceCondition pc, Node n, String path) {
     String[] track = path.split("\\.");
     return _selectNodes(pc, n, track, 0).getList();
@@ -173,24 +227,24 @@ public class NodeUtilities {
   }
 
   private static class SelectNodesResult {
-    private Collection<javafx.util.Pair<PresenceConditionManager.PresenceCondition, Node>> lst = new ArrayList<>();
+    private Collection<PcEntry<Node>> lst = new ArrayList<>();
 
     public void add(PresenceConditionManager.PresenceCondition pc, Node node) {
-      lst.add(new javafx.util.Pair<>(pc, node));
+      lst.add(new PcEntry<>(pc, node));
     }
 
     public void addAll(SelectNodesResult another) {
       lst.addAll(another.lst);
     }
 
-    public Collection<javafx.util.Pair<PresenceConditionManager.PresenceCondition, Node>> getList() {
+    public Collection<PcEntry<Node>> getList() {
       return lst;
     }
 
     public PcMap<Node> getPcMap() {
       PcMap<Node> pcMap = new PcMap<>();
-      for (javafx.util.Pair<PresenceConditionManager.PresenceCondition, Node> pair: lst) {
-        pcMap.add(pair.getKey(), pair.getValue());
+      for (PcEntry<Node> pair: lst) {
+        pcMap.add(pair.getPc(), pair.getValue());
       }
       return pcMap;
     }

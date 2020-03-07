@@ -1,6 +1,5 @@
 package xtc.lang.cpp;
 
-import javafx.util.Pair;
 import jdk.nashorn.internal.ir.FunctionCall;
 import xtc.util.Utilities;
 

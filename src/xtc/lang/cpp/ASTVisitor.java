@@ -1,6 +1,5 @@
 package xtc.lang.cpp;
 
-import javafx.util.Pair;
 import net.sf.javabdd.BDD;
 import xtc.tree.GNode;
 import xtc.tree.Location;
@@ -233,7 +232,7 @@ public class ASTVisitor extends Visitor {
 
     /** Visit function call statement to get FUNCCALL feature */
     public ASTVisitor visitFunctionCall(GNode n, PresenceConditionManager.PresenceCondition pc) {
-        Collection<Pair<PresenceConditionManager.PresenceCondition, Node>> pcNodes =
+        Collection<NodeUtilities.PcEntry<Node>> pcNodes =
           NodeUtilities.selectNodesInOrder(pc, n, "FunctionCall.PrimaryIdentifier");
         assert pcNodes.size() <= 1;
         if (pcNodes.size() == 1) {
