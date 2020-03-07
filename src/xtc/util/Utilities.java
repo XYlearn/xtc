@@ -18,12 +18,9 @@
  */
 package xtc.util;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.Reader;
-import java.io.Writer;
+import java.io.*;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
@@ -636,11 +633,9 @@ public final class Utilities {
     throws IOException {
 
     final int length = s.length();
-    out.append('"');
     for (int i=0; i<length; i++) {
       escape(s.charAt(i), out, flags);
     }
-    out.append('"');
   }
 
   /**
@@ -693,9 +688,6 @@ public final class Utilities {
    * @throws IllegalArgumentException Signals a malformed string.
    */
   public static String unescape(String s) {
-    if (s.startsWith("\"") && s.endsWith("\"")) {
-      s = s.substring(1, s.length() - 1);
-    }
     if (-1 == s.indexOf('\\')) {
       return s;
     }
@@ -990,6 +982,7 @@ public final class Utilities {
      * this one need be no bigger, as unescaping shrinks the string
      * here, where in the other one, it grows it.
      */
+
     if (oldstr.startsWith("\"") && oldstr.endsWith("\"")) {
       oldstr = oldstr.substring(1, oldstr.length() - 1);
     }
@@ -1123,7 +1116,7 @@ public final class Utilities {
         } /* end case '0' */
 
         case 'x':  {
-          if (i+2 > oldstr.length()) {
+          if (i+1 > oldstr.length()) {
             die("string too short for \\x escape");
           }
           i++;
@@ -1134,7 +1127,7 @@ public final class Utilities {
             saw_brace = true;
           }
           int j;
-          for (j = 0; j < 8; j++) {
+          for (j = 0; j < 8 && i+j<oldstr.length(); j++) {
 
             if (!saw_brace && j == 2) {
               break;  /* for */
@@ -1158,8 +1151,7 @@ public final class Utilities {
             )
             )
             {
-              die(String.format(
-                  "illegal hex digit #%d '%c' in \\x", ch, ch));
+              break;
             }
 
           }
@@ -1276,6 +1268,20 @@ public final class Utilities {
   private static final
   void say(String what) {
     System.out.println(what);
+  }
+
+  public static List<String> loadLines(File file) throws IOException {
+    List<String> lines = new ArrayList<>();
+    BufferedReader reader = new BufferedReader(new FileReader(file));
+    String line;
+    while ((line = reader.readLine()) != null) {
+      line = line.trim();
+      if (!line.isEmpty() && !line.startsWith("#")) {
+        lines.add(line);
+      }
+    }
+    reader.close();
+    return lines;
   }
 
 }

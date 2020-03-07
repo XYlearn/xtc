@@ -8,8 +8,7 @@
 #
 # Modifications Copyright (C) 2001, 2004 Robert Grimm 
 # rgrimm@alum.mit.edu
-#
-# Modifications Copyright (C) 2007 New York University
+# # Modifications Copyright (C) 2007 New York University
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -88,6 +87,7 @@ SOURCE = \
 	SuperC.java \
 	ASTVisitor.java \
 	Feature.java \
+	ListMap.java \
 	PcMap.java \
 	FeatureManager.java \
 	FeatureSuperC.java

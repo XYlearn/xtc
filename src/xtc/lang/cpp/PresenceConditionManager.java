@@ -174,11 +174,11 @@ public class PresenceConditionManager {
     notBranches.andWith(branch.not());
     branch.free();
     branch = bdd;
-    
+
     global.free();
     //       peekGlobal   &&  notBranches   &&     branch
     global = stack.peek().and(notBranches).andWith(branch.id());
-    
+
     if (null != current) {
       current.delRef();
       current = null;
@@ -541,6 +541,7 @@ public class PresenceConditionManager {
     public BDD getBDD() {
       return bdd;
     }
+
 
     /**
      * Print the BDD to a writer.

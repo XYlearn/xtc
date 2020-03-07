@@ -29,6 +29,7 @@ import java.io.BufferedReader;
 import java.io.Reader;
 import java.io.FileNotFoundException;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Queue;
@@ -105,6 +106,11 @@ public class HeaderFileManager implements Iterator<Syntax> {
   private boolean timing = false;
 
   /**
+   * Map between header and its replacement
+   */
+  private static Map<Path, File> replaceHeaders = new HashMap<>();
+
+  /**
    * The names of headers that don't have guards.  This avoids having
    * to recheck a header for a guard when we know it doesn't have one
    */
@@ -156,6 +162,19 @@ public class HeaderFileManager implements Iterator<Syntax> {
    */
   public void collectStatistics(boolean b) {
     statisticsCollection = b;
+  }
+
+  /**
+   * Replace header.
+   * @param header Header path to be replaced.
+   * @param replacement The target header path.
+   */
+  public static void replaceHeader(String header, String replacement) {
+    File headerFile = new File(header);
+    File replacementFile = new File(replacement);
+    if (headerFile.exists() && replacementFile.exists()) {
+      replaceHeaders.put(headerFile.toPath().toAbsolutePath(), replacementFile);
+    }
   }
 
   /**
@@ -269,7 +288,7 @@ public class HeaderFileManager implements Iterator<Syntax> {
                                MacroTable macroTable) {
     PFile header;
 
-    header = findHeader(headerName, sysHeader, includeNext);
+    header = findHeaderAndReplace(headerName, sysHeader, includeNext);
     
     if (null == header) {
 
@@ -596,6 +615,29 @@ public class HeaderFileManager implements Iterator<Syntax> {
     }
     
     return false;
+  }
+
+  private boolean isPossibleGuard(String macro) {
+    int idx = macro.lastIndexOf("_H");
+    if (idx > 0) {
+      for (int i = idx + 2; i < macro.length(); ++i) {
+        if (macro.charAt(i) != '_') return false;
+      }
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  private PFile findHeaderAndReplace(String headerName, boolean sysHeader,
+                                     boolean includeNext) {
+    PFile foundHeader = findHeader(headerName, sysHeader, includeNext);
+    Path foundPath = foundHeader.file.toPath().toAbsolutePath();
+    if (foundHeader != null && replaceHeaders.containsKey(foundPath)) {
+      File file = replaceHeaders.get(foundPath);
+      return new PFile(headerName, file, foundHeader.system);
+    }
+    return foundHeader;
   }
 
   /**
@@ -1110,7 +1152,7 @@ public class HeaderFileManager implements Iterator<Syntax> {
             }
             
             headerName = str.substring(1, str.length() - 1);
-            pfile = findHeader(headerName, sysHeader, includeNext);
+            pfile = findHeaderAndReplace(headerName, sysHeader, includeNext);
 
 
             break;

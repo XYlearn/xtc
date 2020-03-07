@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.Expose;
 import javafx.util.Pair;
+import xtc.util.Function;
 
 import java.io.PrintWriter;
 import java.io.Writer;
@@ -50,6 +51,33 @@ public class FeatureManager extends PcMap<Feature> {
      */
     public static FeatureManager current() {
         return currentFM;
+    }
+
+    public void trimNonUnique() {
+        ListMap<Feature, PresenceConditionManager.PresenceCondition> featurePcMap = new ListMap<>();
+        for (Map.Entry<PresenceConditionManager.PresenceCondition, Collection<Feature>> entry: entries()) {
+            PresenceConditionManager.PresenceCondition pc = entry.getKey();
+            Collection<Feature> features = entry.getValue();
+            for (Feature feature: features) {
+                featurePcMap.add(feature, pc);
+            }
+        }
+        for (Map.Entry<Feature, Collection<PresenceConditionManager.PresenceCondition>> entry: featurePcMap.entries()) {
+            Feature feature = entry.getKey();
+            Collection<PresenceConditionManager.PresenceCondition> pcs = entry.getValue();
+            if (pcs.size() > 1) {
+                // non unique
+                for (PresenceConditionManager.PresenceCondition pc: pcs) {
+                    this.remove(pc, feature);
+                }
+                Iterator<PresenceConditionManager.PresenceCondition> iterator = pcs.iterator();
+                PresenceConditionManager.PresenceCondition newPc = iterator.next();
+                while (iterator.hasNext()) {
+                    newPc = newPc.or(iterator.next());
+                }
+                this.add(newPc, feature);
+            }
+        }
     }
 
 }

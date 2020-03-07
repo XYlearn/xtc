@@ -154,8 +154,9 @@ v_tab=[\013]
 c_return=[\015]
 horizontal_white=[ ]|{h_tab}
 newline=\r|\n|\r\n
+skip_directive="#"{whitespace}*("error"|"warning")({continuation}?[^\r\n]*)*{newline}
 //comment=[/][*]([^*/]|[^*][/]|[*][^/])*[*][/]
-linecomment="//"[^\r\n]*{newline}
+linecomment=("//"[^\r\n]*{newline})|{skip_directive}
 continuation="\\\n"
 whitespace=({horizontal_white})+|({v_tab}|{c_return})+|{continuation}
 
@@ -228,7 +229,7 @@ LANGUAGE(_BOOL,"_Bool")
 LANGUAGE(_COMPLEX,"_Complex")
 LANGUAGE(INLINE,"inline")
 
-// LANGUAGE(RESTRICT,"restrict") // A C99 keyword not used in gnu89.
+LANGUAGE(RESTRICT,"restrict") // A C99 keyword not used in gnu89.
 
 //GCC 
 LANGUAGE(__ALIGNOF,"__alignof")

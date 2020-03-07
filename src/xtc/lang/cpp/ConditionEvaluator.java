@@ -143,11 +143,7 @@ public class ConditionEvaluator {
   }
 
   public boolean isConfiguration(String parameter) {
-    boolean isConfiguration = false;
-    for (IsConfiguration filter: configurationFilters) {
-      isConfiguration = isConfiguration || filter.check(parameter);
-    }
-    return isConfiguration;
+    return macroTable.isConfiguration(parameter);
   }
 
   /**
@@ -604,15 +600,11 @@ public class ConditionEvaluator {
        */
       public Object visitDefinedExpression(GNode n) {
         String parameter = n.getGeneric(0).getString(0);
+        boolean configuration = isConfiguration(parameter);
 
         //evaluate the defined operation, preserving configurations
         if (macroTable != null) {
           List<Entry> definitions = macroTable.get(parameter, presenceConditionManager);
-          // We filter configuration instead of regarding all
-          // non-defined macros as configuration
-          if (definitions == null && parameter.startsWith("__") && !isConfiguration(parameter)) {
-            return B.zero();
-          }
 
           if (definitions != null && definitions.size() > 0) {
             boolean hasDefined, hasUndefined, hasFree;
@@ -659,10 +651,12 @@ public class ConditionEvaluator {
 
                   // pull FREE to false also if pullUndefinedFalse is
                   // set
-                  if (!pullUndefinedFalse) {
+                  if (!pullUndefinedFalse || configuration) {
                     varBDD = presenceConditionManager.getVariableManager()
                       .getDefinedVariable(parameter);
-
+                    if (configuration && macroTable.getConfigurationVariables()) {
+                      macroTable.configurationVariables.add(parameter);
+                    }
                     term = def.presenceCondition.getBDD().and(varBDD);
                     newDefined = defined.or(term);
                     term.free();
@@ -670,7 +664,7 @@ public class ConditionEvaluator {
                     varBDD.free();
                     defined = newDefined;
                   } else {
-                    System.err.println("pullUndefinedFalse");
+                    return B.zero();
                   }
 
                 } else if (def.macro.state == Macro.State.DEFINED) {
@@ -691,12 +685,15 @@ public class ConditionEvaluator {
             // The macro was used in a conditional expression before or
             // without being defined, therefore it is a configuration
             // variable.
-            if (macroTable.getConfigurationVariables()) {
+            if (configuration && macroTable.getConfigurationVariables()) {
               macroTable.configurationVariables.add(parameter);
             }
 
             if (pullUndefinedFalse) {
-              return B.zero();
+              if (!configuration) {
+                return B.zero();
+              }
+//              return B.zero();
             }
           }
         } //end has macro table

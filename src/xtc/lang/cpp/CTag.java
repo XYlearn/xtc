@@ -45,7 +45,7 @@ _BOOL(getID("_BOOL"), "_Bool"),
 _COMPLEX(getID("_COMPLEX"), "_Complex"),
 INLINE(getID("INLINE"), "inline"),
 
-
+RESTRICT(getID("RESTRICT"), "restrict"),
 
 
 __ALIGNOF(getID("__ALIGNOF"), "__alignof"),

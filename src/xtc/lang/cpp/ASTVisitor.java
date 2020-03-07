@@ -1,12 +1,16 @@
 package xtc.lang.cpp;
 
 import javafx.util.Pair;
+import net.sf.javabdd.BDD;
 import xtc.tree.GNode;
+import xtc.tree.Location;
 import xtc.tree.Node;
 import xtc.tree.Visitor;
 import xtc.util.NodeUtilities;
 import xtc.util.Utilities;
+import xtc.util.Runtime;
 
+import java.io.File;
 import java.lang.reflect.Method;
 import java.util.*;
 
@@ -26,16 +30,27 @@ public class ASTVisitor extends Visitor {
     /** presence condition of current function */
     protected PresenceConditionManager.PresenceCondition funcPc;
 
-    private PresenceConditionManager.PresenceCondition one;
+    protected String workdir = "";
+
+    private PresenceConditionManager.PresenceCondition one, zero;
+
+    private Map<PresenceConditionManager.PresenceCondition, PresenceConditionManager.PresenceCondition> pcCache = new HashMap<>();
+
+    private boolean showErrors = false;
+
+    private Runtime runtime;
 
     /**
      * ASTVisitor Constructor.
      * @param pcm
      */
-    public ASTVisitor(PresenceConditionManager pcm, CParsingContext.SymbolTable symtab) {
+    public ASTVisitor(Runtime runtime, PresenceConditionManager pcm, CParsingContext.SymbolTable symtab) {
+        showErrors = runtime.test("showErrors");
+        this.runtime = runtime;
         this.pcm = pcm;
         this.symtab = symtab;
         one = pcm.new PresenceCondition(true);
+        zero = pcm.new PresenceCondition(false);
         funcPc = one;
         cache     =
             new LinkedHashMap<CacheKey, Method>(CACHE_CAPACITY, CACHE_LOAD, true) {
@@ -47,6 +62,8 @@ public class ASTVisitor extends Visitor {
         arguments = new Object[]   { null, null };
         argTypes  = new Class<?>[] { GNode.class, PresenceConditionManager.PresenceCondition.class };
     }
+
+    public void setWorkdir(String workdir) { this.workdir=workdir; }
 
     public boolean inFunction() {
         return lsymtab != null;
@@ -104,7 +121,7 @@ public class ASTVisitor extends Visitor {
         } catch (NumberFormatException e) {}
         if (null != num && !num.equals(0)) {
             Feature feature = new Feature(Feature.FeatureType.NUMBER, num);
-            FeatureManager.current().add(pc.restrict(funcPc), feature);
+            addFeature(pc.restrict(funcPc), feature);
         }
         return this;
     }
@@ -135,9 +152,11 @@ public class ASTVisitor extends Visitor {
             "FunctionDefinition.*.OldFunctionDeclarator.IdentifierDeclarator.*.ParenIdentifierDeclarator.SimpleDeclarator.Text")
             .collect());
         String funcName = "";
+        String src = "";
         assert fns.size() == 1;
         for (Node fn: fns) {
             funcName= fn.getTokenText();
+            src = relativePath(fn.getLocation().file, this.workdir);
         }
         FeatureManager.store();
         lsymtab = new CParsingContext.SymbolTable();
@@ -151,9 +170,9 @@ public class ASTVisitor extends Visitor {
             if (sym != null && sym.signature != null) {
                 argCount = sym.signature.args.length;
             }
-            Feature.FunctionFeatureValue featureValue = new Feature.FunctionFeatureValue(funcName, argCount, funcFeatures);
+            Feature.FunctionFeatureValue featureValue = new Feature.FunctionFeatureValue(funcName, src, argCount, funcFeatures);
             Feature feature = new Feature(Feature.FeatureType.FUNCTION, featureValue);
-            FeatureManager.current().add(pc, feature);
+            addFeature(pc, feature);
             FeatureManager.funcs.put(funcName, featureValue);
         }
         // exit function scope, clear local symbol table
@@ -165,7 +184,8 @@ public class ASTVisitor extends Visitor {
     /** Visit SimpleDeclarator to retrieve local declaration of symbols */
     public ASTVisitor visitSimpleDeclarator(GNode n, PresenceConditionManager.PresenceCondition pc) {
         if (inFunction()) {
-            lsymtab.add(NodeUtilities.expandText(n, pc, null), false, pc.restrict(funcPc));
+            String ident = NodeUtilities.expandText(n, pc, null);
+            lsymtab.add(ident, false, pc.restrict(funcPc), null, null, n.getLocation());
         }
         return this;
     }
@@ -173,11 +193,17 @@ public class ASTVisitor extends Visitor {
     /** Visit identifier reference to extract refered global variables */
     public ASTVisitor visitPrimaryIdentifier(GNode n, PresenceConditionManager.PresenceCondition pc) {
         String ident = NodeUtilities.expandText(n, pc, null);
-        if (lsymtab != null && !lsymtab.map.containsKey(ident) && symtab.map.containsKey(ident) &&
-          symtab.map.get(ident).getSymType().equals(CParsingContext.SymType.VARIABLE)) {
+        if (lsymtab != null && !lsymtab.map.containsKey(ident)) {
+            Feature.GVRefFeatureValue featureValue;
             // the function refers to a global variable
-            Feature feature = new Feature(Feature.FeatureType.GVREF, ident);
-            FeatureManager.current().add(pc.restrict(funcPc), feature);
+            CParsingContext.Entry sym = symtab.map.get(ident);
+            if (sym != null && sym.getSymType().equals(CParsingContext.SymType.VARIABLE)) {
+                featureValue = new Feature.GVRefFeatureValue(ident, sym.location.file);
+            } else {
+                featureValue = new Feature.GVRefFeatureValue(ident, "");
+            }
+            Feature feature = new Feature(Feature.FeatureType.GVREF, featureValue);
+            addFeature(pc.restrict(funcPc), feature);
         }
         return this;
     }
@@ -189,16 +215,16 @@ public class ASTVisitor extends Visitor {
         if (entries.size() == 1) {
             for (Map.Entry<PresenceConditionManager.PresenceCondition, Collection<Node>> entry: entries) {
                 StringBuilder sb = new StringBuilder();
-                entry.getValue().forEach(tn -> sb.append(Utilities.unescape(tn.getTokenText())));
+                entry.getValue().forEach(tn -> sb.append(Utilities.unescape_perl_string(tn.getTokenText())));
                 Feature feature = new Feature(Feature.FeatureType.STRING,sb.toString());
-                FeatureManager.current().add(entry.getKey(), feature);
+                addFeature(entry.getKey(), feature);
             }
         } else if (entries.size() > 1) {
             for (Map.Entry<PresenceConditionManager.PresenceCondition, Collection<Node>> entry: entries) {
                 for (Node tn : entry.getValue()) {
-                    String s = Utilities.unescape(tn.getTokenText());
+                    String s = Utilities.unescape_perl_string(tn.getTokenText());
                     Feature feature = new Feature(Feature.FeatureType.STRING, s);
-                    FeatureManager.current().add(entry.getKey(), feature);
+                    addFeature(entry.getKey(), feature);
                 }
             }
         }
@@ -211,12 +237,27 @@ public class ASTVisitor extends Visitor {
           NodeUtilities.selectNodesInOrder(pc, n, "FunctionCall.PrimaryIdentifier");
         assert pcNodes.size() <= 1;
         if (pcNodes.size() == 1) {
-            String funcName = NodeUtilities.expandText(pcNodes.iterator().next().getValue(), pc, null);
-            Feature feature = new Feature(Feature.FeatureType.FUNCCALL, funcName);
-            FeatureManager.current().add(pc.restrict(funcPc), feature);
+            Node primIdent = pcNodes.iterator().next().getValue();
+            String funcName = NodeUtilities.expandText(primIdent, pc, null);
+            CParsingContext.Entry sym = symtab.map.get(funcName);
+            Feature.FuncCallFeatureValue featureValue;
+            if (sym != null) {
+                featureValue = new Feature.FuncCallFeatureValue(funcName, sym.location.file);
+            } else {
+                featureValue = new Feature.FuncCallFeatureValue(funcName, "");
+            }
+            Feature feature = new Feature(Feature.FeatureType.FUNCCALL, featureValue);
+            addFeature(pc.restrict(funcPc), feature);
+        } else {
+            // TODO handle indirect call (FunctionCall.IndirectSelection)
         }
         // visit children
-        visit(n, pc);
+        pcNodes = NodeUtilities.selectNodesInOrder(pc, n, "FunctionCall.ExpressionList");
+        assert pcNodes.size() == 1;
+        if (pcNodes.size() == 1) {
+            GNode exprList = (GNode) pcNodes.iterator().next().getValue();
+            visit(exprList, pc);
+        }
         return this;
     }
 
@@ -233,4 +274,64 @@ public class ASTVisitor extends Visitor {
         return this;
     }
 
+    public void addFeature(PresenceConditionManager.PresenceCondition pc, Feature feature) {
+//        pc = configOnlyPc(pc);
+        FeatureManager.current().add(pc, feature);
+    }
+
+    boolean shouldSimplify(String name) {
+        if (!name.startsWith("(defined")) return true;
+        name = name.replace("(defined ", "").replace(")", "");
+        return !name.startsWith("CONFIG_");
+    }
+
+    private PresenceConditionManager.PresenceCondition configOnlyPc(PresenceConditionManager.PresenceCondition pc) {
+        if (pcCache.containsKey(pc)) return pcCache.get(pc);
+        BDD bdd = pc.getBDD();
+        BDD restrictBDD = one.getBDD();
+        PresenceConditionManager.Variables vars = pcm.getVariableManager();
+        List allsat;
+        boolean firstTerm;
+
+        if (bdd.isOne()) {
+            return pc;
+        } else if (bdd.isZero()) {
+            return pc;
+        }
+
+        allsat = (List) bdd.allsat();
+
+        boolean changed = false;
+        for (Object o : allsat) {
+            byte[] sat;
+
+            sat = (byte[]) o;
+            for (int i = 0; i < sat.length; i++) {
+                String var = vars.getName(i);
+                if (var != null && shouldSimplify(var)) {
+                    BDD varBDD = vars.getVariable(var);
+                    if (!changed) {
+                        changed = true;
+                    }
+                    switch (sat[i]) {
+                        case 0:
+                            restrictBDD = restrictBDD.and(varBDD.not());
+                            break;
+                        case 1:
+                            restrictBDD = restrictBDD.and(varBDD);
+                            break;
+                    }
+                }
+            }
+        }
+        bdd = bdd.restrict(restrictBDD);
+        if (!changed) return pc;
+        PresenceConditionManager.PresenceCondition newPc = pcm.new PresenceCondition(bdd);
+        pcCache.put(pc, newPc);
+        return newPc;
+    }
+
+    private static String relativePath(String path, String base) {
+        return new File(base).toURI().relativize(new File(path).toURI()).getPath();
+    }
 }

@@ -18,13 +18,7 @@
  */
 package xtc.lang.cpp;
 
-import java.util.List;
-import java.util.LinkedList;
-import java.util.ArrayList;
-import java.util.Map;
-import java.util.HashMap;
-import java.util.Set;
-import java.util.HashSet;
+import java.util.*;
 
 import xtc.lang.cpp.Syntax.LanguageTag;
 import xtc.lang.cpp.Syntax.Layout;
@@ -72,8 +66,10 @@ public class MacroTable {
   /** Only allow macros with a given prefix to be free macros. */
   private boolean restrictPrefix = false;
 
-  /** The restricted prefix. */
-  private String prefix = null;
+  /** The restricted prefixes. */
+  private Collection<String> prefixes = null;
+
+  private Set<String> openFeatures = null;
 
   /** Make a new empty macro table */
   public MacroTable(TokenCreator tokenCreator) {
@@ -104,6 +100,8 @@ public class MacroTable {
     }
   }
 
+  public void setOpenFeatures(Set<String> openFeatures) { this.openFeatures = openFeatures; }
+
   public boolean getHeaderGuards() {
     return getHeaderGuards;
   }
@@ -115,14 +113,32 @@ public class MacroTable {
    * @param prefix Give a string to turn restricted prefix on.  Give
    * null to turn it off.
    */
-  public void restrictPrefix(String prefix) {
-    if (null == prefix) {
+  public void restrictPrefixes(Collection<?> prefixes) {
+    if (null == prefixes) {
       restrictPrefix = false;
-      this.prefix = null;
+      this.prefixes = null;
     } else {
       restrictPrefix = true;
-      this.prefix = prefix;
+      this.prefixes = new ArrayList<>();
+      for (Object o: prefixes) {
+        if (o instanceof String) {
+          this.prefixes.add((String) o);
+        }
+      }
+      if (this.prefixes.size() == 0) {
+        this.prefixes = null;
+        restrictPrefix = false;
+      }
     }
+  }
+
+  public boolean isConfiguration(String macro) {
+    if (!restrictPrefix) return false;
+    for (String prefix: prefixes) {
+      if (macro.startsWith(prefix) && openFeatures.contains(macro.substring(prefix.length())))
+        continue;
+    }
+    return false;
   }
   
   /** Define a macro under a given presenceCondition.  This function will
@@ -199,21 +215,28 @@ public class MacroTable {
       defs = new LinkedList<Entry>();
       table.put(name, defs);
 
-      if (! presenceCondition.isTrue()) {
-        PresenceCondition negation;
-        
-        negation = presenceCondition.not();
-        if (restrictPrefix && !name.startsWith(prefix)) {
-          // Assume the macro is undefined.
-          defs.add(new Entry(Macro.undefined, negation));
-        } else {
-          // Let the macro be free.
+      if (isConfiguration(name)) {
+          PresenceCondition negation = presenceCondition.not();
+          defs.add(new Entry(Macro.free, presenceCondition));
           defs.add(new Entry(Macro.free, negation));
-        }
-        negation.delRef();
-      }
+          negation.delRef();
+      } else {
+        if (!presenceCondition.isTrue()) {
+          PresenceCondition negation;
 
-      defs.add(new Entry(macro, presenceCondition));
+          negation = presenceCondition.not();
+          if (restrictPrefix) {
+            // Assume the macro is undefined.
+            defs.add(new Entry(Macro.undefined, negation));
+          } else {
+            // Let the macro be free.
+            defs.add(new Entry(Macro.free, negation));
+          }
+          negation.delRef();
+        }
+
+        defs.add(new Entry(macro, presenceCondition));
+      }
       
     } else {  //update macro entries
       Entry duplicate;

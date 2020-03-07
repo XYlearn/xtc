@@ -391,7 +391,7 @@ public class CParsingContext implements ParsingContext {
    * @param symType The symbol type.
    * @param signature Function Signature if the symbol is a function.
    */
-  public void bind(String ident, boolean typedef, PresenceCondition presenceCondition, SymType symType, Signature signature) {
+  public void bind(String ident, boolean typedef, PresenceCondition presenceCondition, SymType symType, Signature signature,  Location location) {
     CParsingContext scope;
 
     if (DEBUG) {
@@ -401,32 +401,7 @@ public class CParsingContext implements ParsingContext {
     scope = this;
     while (scope.reentrant) scope = scope.parent;
 
-    scope.symtab.add(ident, typedef, presenceCondition, symType, signature);
-  }
-
-  /**
-   * Bind an identifier to a typedef or var name for a given presence
-   * condition.
-   *
-   * @param ident The identifier.
-   * @param typedef Whether its a typedef name or a var name.
-   * @param presenceCondition The presence condition.
-   * @param symType The symbol type.
-   */
-  public void bind(String ident, boolean typedef, PresenceCondition presenceCondition, SymType symType) {
-    bind(ident, typedef, presenceCondition, symType, null);
-  }
-
-  /**
-   * Bind an identifier to a typedef or var name for a given presence
-   * condition.
-   *
-   * @param ident The identifier.
-   * @param typedef Whether its a typedef name or a var name.
-   * @param presenceCondition The presence condition.
-   */
-  public void bind(String ident, boolean typedef, PresenceCondition presenceCondition) {
-    bind(ident, typedef, presenceCondition, SymType.UNKNOWN, null);
+    scope.symtab.add(ident, typedef, presenceCondition, symType, signature, location);
   }
 
   /**
@@ -622,19 +597,12 @@ public class CParsingContext implements ParsingContext {
         }
       }
     }
-
-    public void add(String ident, boolean typedef, PresenceCondition presenceCondition) {
-      add(ident, typedef, presenceCondition, SymType.UNKNOWN, null);
-    }
-
-    public void add(String ident, boolean typedef, PresenceCondition presenceCondition, SymType symType) {
-      add(ident, typedef, presenceCondition, symType, null);
-    }
     
-    public void add(String ident, boolean typedef, PresenceCondition presenceCondition, SymType symType, Signature signature) {
+    public void add(String ident, boolean typedef, PresenceCondition presenceCondition,
+                    SymType symType, Signature signature, Location location) {
       if (! map.containsKey(ident)) {
         map.put(ident,
-                new Entry(typedef ? presenceCondition : null, typedef ? null : presenceCondition, symType, signature));
+                new Entry(typedef ? presenceCondition : null, typedef ? null : presenceCondition, symType, signature, location));
         presenceCondition.addRef();
       }
       else {
@@ -733,29 +701,24 @@ public class CParsingContext implements ParsingContext {
     SymType symType;
 
     Signature signature;
+
+    Location location;
     
     /** Create a new entry.
      *
      * @param t The typedef name presence condition.
      * @param f The var name presence condition.
      */
-    public Entry(PresenceCondition trueCondition, PresenceCondition falseCondition) {
-      this(trueCondition, falseCondition, SymType.UNKNOWN, null);
-    }
-
-    public Entry(PresenceCondition trueCondition, PresenceCondition falseCondition, SymType symType) {
-      this(trueCondition, falseCondition, symType, null);
-    }
-
-    public Entry(PresenceCondition trueCondition, PresenceCondition falseCondition, SymType symType, Signature signature) {
+    public Entry(PresenceCondition trueCondition, PresenceCondition falseCondition, SymType symType, Signature signature, Location location) {
       this.trueCondition = trueCondition;
       this.falseCondition = falseCondition;
       this.symType = symType;
       this.signature = signature;
+      this.location = location;
     }
 
     protected Entry clone() {
-      Entry e = new Entry(trueCondition, falseCondition, symType, signature);
+      Entry e = new Entry(trueCondition, falseCondition, symType, signature, location);
       return e;
     }
 
@@ -766,6 +729,8 @@ public class CParsingContext implements ParsingContext {
     public SymType getSymType() {
       return symType;
     }
+
+    public Location getLocation() { return location; }
   }
 
   public static class Signature {

@@ -6,13 +6,20 @@ import xtc.tree.Visitor;
 import xtc.type.AST;
 
 import java.io.*;
+import java.nio.file.Paths;
 
 public class FeatureSuperC extends SuperC {
     @Override
     public void process(Node ast) {
         super.process(ast);
         if (runtime.test("extractFeature")) {
-            ASTVisitor visitor = new ASTVisitor(presenceConditionManager, initialParsingContext.symtab);
+            ASTVisitor visitor = new ASTVisitor(runtime, presenceConditionManager, initialParsingContext.symtab);
+            // set workdir to get relative path of source
+            String workdir = runtime.getString("workdir");
+            if (null == workdir) {
+                workdir = Paths.get("").toAbsolutePath().toString();
+            }
+            visitor.setWorkdir(workdir);
             visitor.dispatch(ast, presenceConditionManager.new PresenceCondition(true));
             String path = runtime.getString("extractFile");
             Writer writer;
@@ -27,6 +34,7 @@ public class FeatureSuperC extends SuperC {
                     writer = new FileWriter(file);
                 }
                 FeatureManager.current().toJson(writer, runtime.test("prettyFeature"));
+                writer.close();
             } catch (IOException e) { System.err.println("[-] Fail to extract features to file."); }
         }
     }
@@ -36,11 +44,13 @@ public class FeatureSuperC extends SuperC {
         super.init();
         runtime
           .word("extractFile", "extractFile", false,
-            "The path of file to output extraction result")
+            "The path of file to output extraction result.")
+          .word("workdir", "workdir", false,
+            "The workdir of the FeatureSuperC.")
           .bool("extractFeature", "extractFeature", false,
-            "Extract features from AST and stream result")
+            "Extract features from AST and stream result.")
           .bool("prettyFeature", "prettyFeature", false,
-            "pretty print the extracted features");
+            "pretty print the extracted features.");
     }
 
     public static void main(String[] args) {

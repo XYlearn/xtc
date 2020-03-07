@@ -142,8 +142,8 @@ public class CSemanticActions extends CActionsInterface {
       // Not sure but in this case it creates a variable symbol
       symType = CParsingContext.SymType.VARIABLE;
     }
-      
-    scope.bind(ident.getTokenText(), typedef, presenceCondition, symType, signature);
+
+    scope.bind(ident.getTokenText(), typedef, presenceCondition, symType, signature, ident.getLocation());
   }
     
   public void BindIdentifierInList(Subparser subparser) {
@@ -197,8 +197,8 @@ public class CSemanticActions extends CActionsInterface {
       // Bind a variable name.
       typedef = false;
     }
-      
-    scope.bind(ident.getTokenText(), typedef, presenceCondition, CParsingContext.SymType.VARIABLE);
+
+    scope.bind(ident.getTokenText(), typedef, presenceCondition, CParsingContext.SymType.VARIABLE, null, ident.getLocation());
   }
     
   public void BindVar(Subparser subparser) {
@@ -211,7 +211,7 @@ public class CSemanticActions extends CActionsInterface {
     Language<?> ident = getident(b);
 
     // Bind variable name.
-    scope.bind(ident.getTokenText(), false, presenceCondition, CParsingContext.SymType.VARIABLE);
+    scope.bind(ident.getTokenText(), false, presenceCondition, CParsingContext.SymType.VARIABLE, null, ident.getLocation());
   }
     
   public void BindEnum(Subparser subparser) {
@@ -222,10 +222,10 @@ public class CSemanticActions extends CActionsInterface {
     // Get the identifier in the declarator.  The identifier must
     // occur after an IdentifierOrTypedefName token.
     Object b = stack.get(2).value;
-    String ident = getident(b).getTokenText();
+    Language<?> ident = getident(b);
 
     // Bind variable name.
-    scope.bind(ident, false, presenceCondition, CParsingContext.SymType.ENUM);
+    scope.bind(ident.getTokenText(), false, presenceCondition, CParsingContext.SymType.ENUM, null, ident.getLocation());
   }
     
   public void EnterScope(Subparser subparser) {

@@ -686,7 +686,7 @@ public abstract class Syntax extends xtc.tree.Token {
     }
 
     public Syntax copy() {
-      throw new UnsupportedOperationException();
+      return new Error(message, type);
     }
 
     public Kind kind() {

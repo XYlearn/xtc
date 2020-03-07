@@ -121,10 +121,12 @@ public class NodeUtilities {
       } else {
         name = "#";
       }
-      if (null == nextPat) {
-        if (matchPat(name, pat)) {
+      if (matchPat(name, pat)) {
+        if (null == nextPat) {
           result.add(pc, n);
         }
+      } else if (pat.equals("*")) {
+        return _selectNodes(pc, n, track, idx + 1);
       }
     } else if (n.getName().equals("Conditional")) {
       // Select from Conditional node

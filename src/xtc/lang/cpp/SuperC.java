@@ -28,15 +28,8 @@ import java.io.StringReader;
 import java.io.OutputStreamWriter;
 import java.io.IOException;
 
-import java.util.List;
-import java.util.Arrays;
-import java.util.LinkedList;
-import java.util.Queue;
-import java.util.Map;
-import java.util.IdentityHashMap;
-import java.util.HashSet;
-import java.util.HashMap;
-import java.util.Iterator;
+import java.nio.Buffer;
+import java.util.*;
 
 import xtc.lang.cpp.Syntax.Kind;
 import xtc.lang.cpp.Syntax.LanguageTag;
@@ -52,6 +45,7 @@ import xtc.lang.cpp.Syntax.ErrorType;
 
 import xtc.lang.cpp.PresenceConditionManager.PresenceCondition;
 
+import xtc.tree.Attribute;
 import xtc.tree.Node;
 import xtc.tree.GNode;
 import xtc.tree.Location;
@@ -67,6 +61,7 @@ import xtc.parser.Result;
 import xtc.parser.ParseException;
 
 import net.sf.javabdd.BDD;
+import xtc.util.Utilities;
 
 /**
  * The SuperC configuration-preserving preprocessor and parsing.
@@ -149,7 +144,9 @@ public class SuperC extends Tool {
       word("U", "U", true, "Undefine a macro.  Occurs after all -D arguments "
            + "which is a departure from gnu cpp.").
       word("include", "include", true, "Include a header.").
-      
+      bool("pullUndefFalse", "pullUndefFalse", false,
+        "Whether to pull undefined macros to false").
+
       // Extra preprocessor arguments.
       bool("nobuiltins", "nobuiltins", false,
            "Disable gcc built-in macros.").
@@ -158,10 +155,14 @@ public class SuperC extends Tool {
            "includes (-include).  Useful for testing the preprocessor.").
       word("mandatory", "mandatory", false,
            "Include the given header file even if nocommandline is on.").
-      word("TypeChef-x", "TypeChef-x", false,
+      word("prefix", "prefix", true,
            "Restricts free macros to those that have the given prefix").
+      file("openFeatures", "openFeatures", false,
+        "Path of the open features list").
       word("ignHeader", "ignHeader", true,
           "Ignore a header file to prevent unhandlable error").
+      word("replaceHeader", "replaceHeader", true,
+        "Replace a header with given one").
 
       // SuperC component selection.
       bool("E", "E", false,
@@ -286,7 +287,7 @@ public class SuperC extends Tool {
            "Show the macro symbol table.")
       ;
   }
-  
+
   /**
    * Prepare for file processing.  Build header search paths.
    * Include command-line headers. Process command-line and built-in macros.
@@ -302,11 +303,11 @@ public class SuperC extends Tool {
       && runtime.test("naiveFMLR");
 
     // Check optimization options.
-    if (explicitOptimizations && doNotOptimize) { 
+    if (explicitOptimizations && doNotOptimize) {
       runtime.error("no optimizations incompatible with explicitly specified " +
                     "optimizations");
     }
-    
+
     if (naiveFMLR && (explicitOptimizations || doNotOptimize)) {
       runtime.error("naive FMLR is incompatible with all optimizations and "
                     + "with Onone because it does not use the follow set.");
@@ -350,17 +351,17 @@ public class SuperC extends Tool {
     // currentheaderdirectory iquote I    isystem standardsystem
     // ""                     ""     ""   ""     ""
     //                               <>   <>     <>
-    //                                    marked system headers 
+    //                                    marked system headers
     if (!runtime.test("nostdinc")) {
       for (int i = 0; i < Builtins.sysdirs.length; i++) {
         sysdirs.add(Builtins.sysdirs[i]);
       }
     }
-    
+
     for (Object o : runtime.getList("isystem")) {
       if (o instanceof String) {
         String s;
-        
+
         s = (String) o;
         if (sysdirs.indexOf(s) < 0) {
           sysdirs.add(s);
@@ -380,11 +381,11 @@ public class SuperC extends Tool {
         }
       }
     }
-    
+
     for (Object o : runtime.getList("iquote")) {
       if (o instanceof String) {
         String s;
-        
+
         s = (String) o;
         // cpp permits bracket and quote search chains to have
         // duplicate dirs.
@@ -405,18 +406,18 @@ public class SuperC extends Tool {
     StringBuilder commandlinesb;
 
     commandlinesb = new StringBuilder();
-    
+
     if (! runtime.test("nobuiltins")) {
       commandlinesb.append(Builtins.builtin);
     }
-    
+
     if (! runtime.test("nocommandline")) {
       for (Object o : runtime.getList("D")) {
         if (o instanceof String) {
           String s, name, definition;
-          
+
           s = (String) o;
-          
+
           // Truncate at first newline according to gcc spec.
           if (s.indexOf("\n") >= 0) {
             s = s.substring(0, s.indexOf("\n"));
@@ -433,11 +434,11 @@ public class SuperC extends Tool {
           commandlinesb.append("#define " + name + " " + definition + "\n");
         }
       }
-      
+
       for (Object o : runtime.getList("U")) {
         if (o instanceof String) {
           String s, name, definition;
-          
+
           s = (String) o;
           // Truncate at first newline according to gcc spec.
           if (s.indexOf("\n") >= 0) {
@@ -447,23 +448,23 @@ public class SuperC extends Tool {
           commandlinesb.append("#undef " + name + "\n");
         }
       }
-      
+
       for (Object o : runtime.getList("include")) {
         if (o instanceof String) {
           String filename;
-          
+
           filename = (String) o;
           commandlinesb.append("#include \"" + filename + "\"\n");
         }
       }
     }
-    
+
     if (null != runtime.getString("mandatory")
         && runtime.getString("mandatory").length() > 0) {
       commandlinesb.append("#include \"" + runtime.getString("mandatory")
                            + "\"\n");
     }
-    
+
     if (commandlinesb.length() > 0) {
       commandline = new StringReader(commandlinesb.toString());
 
@@ -480,6 +481,8 @@ public class SuperC extends Tool {
     Iterator<Syntax> preprocessor;
     Node result = null;
     StopWatch parserTimer = null, preprocessorTimer = null, lexerTimer = null;
+    List<?> prefixes = runtime.getList("prefix");
+    List<?> replaceHeaders = runtime.getList("replaceHeader");
 
     if (runtime.test("time")) {
       parserTimer = new StopWatch();
@@ -541,8 +544,13 @@ public class SuperC extends Tool {
     macroTable
       .getConfigurationVariables(runtime.test("configurationVariables"));
     macroTable.getHeaderGuards(runtime.test("headerGuards"));
-    if (null != runtime.getString("TypeChef-x")) {
-      macroTable.restrictPrefix(runtime.getString("TypeChef-x"));
+    if (null != prefixes) {
+      macroTable.restrictPrefixes(prefixes);
+    }
+    if (null != runtime.getFile("openFeatures")) {
+      File openFeaturesFile = runtime.getFile("openFeatures");
+      Set<String> openFeatures = new HashSet<>(Utilities.loadLines(openFeaturesFile));
+      macroTable.setOpenFeatures(openFeatures);
     }
     presenceConditionManager = new PresenceConditionManager();
     if (runtime.test("checkExpressionParser")) {
@@ -554,9 +562,18 @@ public class SuperC extends Tool {
     conditionEvaluator = new ConditionEvaluator(expressionParser,
                                                 presenceConditionManager,
                                                 macroTable);
-    if (null != runtime.getString("TypeChef-x")) {
-      String prefix = runtime.getString("TypeChef-x");
-      conditionEvaluator.registerConfigurationFilter((parameter) -> parameter.startsWith(prefix));
+    conditionEvaluator.setPullUndefinedFalse(runtime.test("pullUndefFalse"));
+
+    // Replace headers in HeaderFileManager
+    if (null != replaceHeaders) {
+      for (Object o : replaceHeaders) {
+        if (o instanceof String) {
+          String[] attr = ((String) o).split(":");
+          if (attr.length == 2) {
+            HeaderFileManager.replaceHeader((String) attr[0], (String) attr[1]);
+          }
+        }
+      }
     }
 
     if (null != commandline) {
@@ -1017,10 +1034,7 @@ public class SuperC extends Tool {
           evaluator = new ConditionEvaluator(ExpressionParser.fromRats(),
                                              presenceConditionManager,
                                              macroTable);
-          if (null != runtime.getString("TypeChef-x")) {
-            String prefix = runtime.getString("TypeChef-x");
-            evaluator.registerConfigurationFilter((parameter) -> parameter.startsWith(prefix));
-          }
+          evaluator.setPullUndefinedFalse(runtime.test("pullUndefFalse"));
         }
 
         configuration = presenceConditionManager.

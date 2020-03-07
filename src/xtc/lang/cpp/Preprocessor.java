@@ -286,11 +286,13 @@ public class Preprocessor implements Iterator<Syntax> {
     // Get the next token from the source file or the token buffer.
     Syntax syntax = getNext();
 
-    // System.err.println("getNext: " + syntax);
-    // System.err.println("PASTE_LEFT: " + syntax.testFlag(PASTE_LEFT));
-    // System.err.println("PREV_WHITE: " + syntax.testFlag(PREV_WHITE));
-    // System.err.println("prescanning: " + prescanning);
-    // System.err.println("presenceCondition: " + presenceConditionManager.reference());
+//    if (0 == prescanning)
+//     System.out.print(syntax + " ");
+//     System.err.println("getNext: " + syntax);
+//     System.err.println("PASTE_LEFT: " + syntax.testFlag(PASTE_LEFT));
+//     System.err.println("PREV_WHITE: " + syntax.testFlag(PREV_WHITE));
+//     System.err.println("prescanning: " + prescanning);
+//     System.err.println("presenceCondition: " + presenceConditionManager.reference());
 
     boolean isValid;
     if (EMPTY_INVALID_BRANCHES) {
@@ -3956,11 +3958,13 @@ public class Preprocessor implements Iterator<Syntax> {
                 // a token-paste operation.  Only the _last_ token of
                 // the actual argument gets pasted, so add the
                 // PASTE_LEFT flag to it.
-                
+
                 List<Syntax> arg = argBlock;
+                Syntax last = (Syntax) arg.get(arg.size() - 1);
+
                 if (arg.size() > 0) {
-                  Syntax last = (Syntax) arg.get(arg.size() - 1);
-    
+                  last = (Syntax) arg.get(arg.size() - 1);
+
                   if (null != arg) {
                     if (t.testFlag(PREV_WHITE)) {
                       replaced.add(SPACE);
@@ -3992,9 +3996,12 @@ public class Preprocessor implements Iterator<Syntax> {
                 List<Syntax> arg = argBlock;
 
                 if (null != arg && arg.size() > 0) {
+                  // paste don't need extra white space
+                  /*
                   if (t.testFlag(PREV_WHITE)) {
                     replaced.add(SPACE);
                   }
+                  */
 
                   for (Syntax a : arg) {
                     replaced.add(a);
@@ -4479,6 +4486,14 @@ public class Preprocessor implements Iterator<Syntax> {
     eoe.setFlag(EOE);
     argEOE.add(eoe);
 
+    boolean needPrescanning = false;
+    for (Syntax a: arg) {
+      if (a.kind() == Kind.CONDITIONAL) {
+        needPrescanning = true;
+        break;
+      }
+    }
+
     // Push a new token buffer for the preprocessor to preprocess the
     // argument.
     stackOfBuffers.push(new PlainTokenBuffer(argEOE, true));
@@ -4490,6 +4505,8 @@ public class Preprocessor implements Iterator<Syntax> {
     // Preprocess the argument.
     List<Syntax> expanded = new LinkedList<Syntax>();
     boolean done = false;
+
+    if (needPrescanning) prescanning++;
     while (true) {
       Syntax syntax = next();
 
@@ -4520,7 +4537,7 @@ public class Preprocessor implements Iterator<Syntax> {
 
       expanded.add(syntax);
     }
-
+    if (needPrescanning) prescanning--;
     stackOfBuffers.pop();
 
     return expanded;
@@ -4661,7 +4678,8 @@ public class Preprocessor implements Iterator<Syntax> {
       }
       
       if (iterator.hasNext()) {
-        return iterator.next();
+        Syntax tok = iterator.next();
+        return tok;
       } else {
         return null;
       }
