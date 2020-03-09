@@ -136,7 +136,7 @@ public class MacroTable {
     if (!restrictPrefix) return false;
     for (String prefix: prefixes) {
       if (macro.startsWith(prefix) && openFeatures.contains(macro.substring(prefix.length())))
-        continue;
+        return true;
     }
     return false;
   }

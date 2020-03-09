@@ -632,7 +632,10 @@ public class HeaderFileManager implements Iterator<Syntax> {
   private PFile findHeaderAndReplace(String headerName, boolean sysHeader,
                                      boolean includeNext) {
     PFile foundHeader = findHeader(headerName, sysHeader, includeNext);
-    Path foundPath = foundHeader.file.toPath().toAbsolutePath();
+    Path foundPath = null;
+    if (foundHeader != null) {
+      foundPath = foundHeader.file.toPath().toAbsolutePath();
+    }
     if (foundHeader != null && replaceHeaders.containsKey(foundPath)) {
       File file = replaceHeaders.get(foundPath);
       return new PFile(headerName, file, foundHeader.system);
