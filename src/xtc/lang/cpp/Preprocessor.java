@@ -3960,9 +3960,9 @@ public class Preprocessor implements Iterator<Syntax> {
                 // PASTE_LEFT flag to it.
 
                 List<Syntax> arg = argBlock;
-                Syntax last = (Syntax) arg.get(arg.size() - 1);
 
                 if (arg.size() > 0) {
+                  Syntax last = (Syntax) arg.get(arg.size() - 1);
                   last = (Syntax) arg.get(arg.size() - 1);
 
                   if (null != arg) {
