@@ -50,7 +50,9 @@ public class FeatureSuperC extends SuperC {
           .bool("extractFeature", "extractFeature", false,
             "Extract features from AST and stream result.")
           .bool("prettyFeature", "prettyFeature", false,
-            "pretty print the extracted features.");
+            "pretty print the extracted features.")
+          .bool("collectUsage", "collectUsage", false,
+            "Collect usage statistic from AST.");
     }
 
     public static void main(String[] args) {

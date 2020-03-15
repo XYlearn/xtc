@@ -29,6 +29,8 @@ public class ASTVisitor extends Visitor {
     /** presence condition of current function */
     protected PresenceConditionManager.PresenceCondition funcPc;
 
+    protected Map<String, EnumSet<MacroUsage>> macroUsage;
+
     protected String workdir = "";
 
     private PresenceConditionManager.PresenceCondition one, zero;
@@ -36,6 +38,8 @@ public class ASTVisitor extends Visitor {
     private Map<PresenceConditionManager.PresenceCondition, PresenceConditionManager.PresenceCondition> pcCache = new HashMap<>();
 
     private boolean showErrors = false;
+
+    private boolean collectUsage = false;
 
     private Runtime runtime;
 
@@ -45,6 +49,7 @@ public class ASTVisitor extends Visitor {
      */
     public ASTVisitor(Runtime runtime, PresenceConditionManager pcm, CParsingContext.SymbolTable symtab) {
         showErrors = runtime.test("showErrors");
+        collectUsage = runtime.test("collectUsage");
         this.runtime = runtime;
         this.pcm = pcm;
         this.symtab = symtab;
@@ -60,6 +65,10 @@ public class ASTVisitor extends Visitor {
         key       = new CacheKey(null, null);
         arguments = new Object[]   { null, null };
         argTypes  = new Class<?>[] { GNode.class, PresenceConditionManager.PresenceCondition.class };
+
+        if (collectUsage) {
+            macroUsage = new HashMap<>();
+        }
     }
 
     public void setWorkdir(String workdir) { this.workdir=workdir; }
@@ -106,6 +115,7 @@ public class ASTVisitor extends Visitor {
                 s = s.replaceAll("l|L|U|u", "");
                 if (tag.equals(CTag.FLOATINGconstant)) {
                     num = Double.valueOf(s);
+                    assignUsage(pc, MacroUsage.CONST);
                 } else if (tag.equals(CTag.INTEGERconstant)) {
                     num = Integer.valueOf(s, 10);
                 } else if (tag.equals(CTag.OCTALconstant)) {
@@ -121,6 +131,9 @@ public class ASTVisitor extends Visitor {
         if (null != num && !num.equals(0)) {
             Feature feature = new Feature(Feature.FeatureType.NUMBER, num);
             addFeature(pc.restrict(funcPc), feature);
+        }
+        if (collectUsage) {
+            assignUsage(pc, MacroUsage.CONST);
         }
         return this;
     }
@@ -177,6 +190,9 @@ public class ASTVisitor extends Visitor {
         // exit function scope, clear local symbol table
         lsymtab = null;
         funcPc = one;
+        if (collectUsage) {
+            assignUsage(pc, MacroUsage.FULL_FUNC);
+        }
         return this;
     }
 
@@ -226,6 +242,9 @@ public class ASTVisitor extends Visitor {
                     addFeature(entry.getKey(), feature);
                 }
             }
+        }
+        if (collectUsage) {
+            assignUsage(pc, MacroUsage.CONST);
         }
         return this;
     }
@@ -330,7 +349,29 @@ public class ASTVisitor extends Visitor {
         return newPc;
     }
 
+    private void assignUsage(PresenceConditionManager.PresenceCondition pc, MacroUsage usage) {
+        List<String> macros = pc.getMacros();
+        for (String macro: macros) {
+            if (macroUsage.containsKey(macro)) {
+                macroUsage.get(macro).add(usage);
+            } else {
+                macroUsage.put(macro, EnumSet.of(usage));
+            }
+        }
+    }
+
     private static String relativePath(String path, String base) {
         return new File(base).toURI().relativize(new File(path).toURI()).getPath();
     }
+
+    public enum MacroUsage {
+        MODULE,
+        FULL_FUNC,
+        PART_FUNC,
+        TYPE,
+        CONST
+    }
+
+    public static final EnumSet<MacroUsage> ALL_OPTS = EnumSet.allOf(MacroUsage.class);
+
 }

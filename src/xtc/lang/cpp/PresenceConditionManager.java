@@ -595,6 +595,40 @@ public class PresenceConditionManager {
       }
     }
 
+    /**
+     * Get referred macro names.
+     *
+     * @return List of referred macros.
+     */
+    public List<String> getMacros() {
+      List<String> result = new ArrayList<>();
+      if (bdd.isOne() || bdd.isZero()) {
+        return result;
+      }
+
+      List allsat;
+
+      allsat = (List) bdd.allsat();
+
+      for (Object o : allsat) {
+        byte[] sat;
+        boolean first;
+
+        sat = (byte[]) o;
+        first = true;
+        for (int i = 0; i < sat.length; i++) {
+          if (sat[i] >= 0) {
+            String var = vars.getName(i);
+            if (var.startsWith("(defined ") && var.endsWith(")")) {
+              result.add(var.substring(9, var.length() - 1));
+            }
+          }
+        }
+      }
+
+      return result;
+    }
+
     @Override
     public boolean equals(Object obj) {
       if (obj instanceof PresenceCondition) {
