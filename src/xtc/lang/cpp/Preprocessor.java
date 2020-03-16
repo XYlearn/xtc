@@ -23,6 +23,7 @@ import java.io.StringReader;
 import java.lang.StringBuilder;
 
 import java.util.*;
+import java.util.regex.Pattern;
 
 import xtc.lang.cpp.Syntax.Kind;
 import xtc.lang.cpp.Syntax.LanguageTag;
@@ -1557,9 +1558,14 @@ public class Preprocessor implements Iterator<Syntax> {
         
       String headerName = str.substring(1, str.length() - 1);
 
-      if (ignoredHeaders.contains(headerName)) {
-        return Preprocessor.EMPTY;
+      for (String ignoredHeader: ignoredHeaders) {
+        if (Pattern.matches(ignoredHeader, headerName)) {
+          return Preprocessor.EMPTY;
+        }
       }
+//      if (ignoredHeaders.contains(headerName)) {
+//        return Preprocessor.EMPTY;
+//      }
 
       Syntax linemarker
         = fileManager.includeHeader(headerName, sysHeader, includeNext,
