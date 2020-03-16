@@ -77,6 +77,10 @@ public class ASTVisitor extends Visitor {
         return lsymtab != null;
     }
 
+    public Map<String, EnumSet<MacroUsage>> getMacroUsage() {
+        return macroUsage;
+    }
+
     /**
      * Dispatch node together with its presence condition.
      * @param n node.
