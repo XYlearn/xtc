@@ -41,6 +41,8 @@ public class ASTVisitor extends Visitor {
 
     private boolean collectUsage = false;
 
+    private boolean extractFeature = false;
+
     private Runtime runtime;
 
     /**
@@ -50,6 +52,7 @@ public class ASTVisitor extends Visitor {
     public ASTVisitor(Runtime runtime, PresenceConditionManager pcm, CParsingContext.SymbolTable symtab) {
         showErrors = runtime.test("showErrors");
         collectUsage = runtime.test("collectUsage");
+        extractFeature = runtime.test("extractFeature");
         this.runtime = runtime;
         this.pcm = pcm;
         this.symtab = symtab;
@@ -104,6 +107,9 @@ public class ASTVisitor extends Visitor {
                 dispatch((Syntax.Text) o, pc);
             }
         }
+        if (collectUsage && inFunction()) {
+            assignUsage(pc, MacroUsage.PART_FUNC);
+        }
         return this;
     }
 
@@ -112,29 +118,34 @@ public class ASTVisitor extends Visitor {
         Enum<CTag> tag = ((Syntax.Text) n).tag();
         String s = Utilities.unescape_perl_string(n.getTokenText());
         Number num = null;
-        try {
-            if (tag.equals(CTag.CHARACTERconstant)) {
-                num = (int)s.charAt(1);
-            } else {
-                s = s.replaceAll("l|L|U|u", "");
-                if (tag.equals(CTag.FLOATINGconstant)) {
-                    num = Double.valueOf(s);
-                    assignUsage(pc, MacroUsage.CONST);
-                } else if (tag.equals(CTag.INTEGERconstant)) {
-                    num = Integer.valueOf(s, 10);
-                } else if (tag.equals(CTag.OCTALconstant)) {
-                    if (s.startsWith("0") && s.length() > 1) {
-                        s = s.substring(1);
+        if (extractFeature) {
+            try {
+                if (tag.equals(CTag.CHARACTERconstant)) {
+                    num = (int) s.charAt(1);
+                } else {
+                    s = s.replaceAll("l|L|U|u", "");
+                    if (tag.equals(CTag.FLOATINGconstant)) {
+                        num = Double.valueOf(s);
+                    } else if (tag.equals(CTag.INTEGERconstant)) {
+                        num = Integer.valueOf(s, 10);
+                    } else if (tag.equals(CTag.OCTALconstant)) {
+                        if (s.startsWith("0") && s.length() > 1) {
+                            s = s.substring(1);
+                        }
+                        num = Integer.valueOf(s, 8);
+                    } else if (tag.equals(CTag.HEXconstant)) {
+                        num = Integer.valueOf(s.substring(2, s.length()), 16);
                     }
-                    num = Integer.valueOf(s, 8);
-                } else if (tag.equals(CTag.HEXconstant)) {
-                    num = Integer.valueOf(s.substring(2, s.length()), 16);
+                }
+            } catch (NumberFormatException e) {
+            }
+            if (null != num && !num.equals(0)) {
+                if (num instanceof Integer && Math.abs(num.intValue()) < 10) {
+                } else {
+                    Feature feature = new Feature(Feature.FeatureType.NUMBER, num);
+                    addFeature(pc.restrict(funcPc), feature);
                 }
             }
-        } catch (NumberFormatException e) {}
-        if (null != num && !num.equals(0)) {
-            Feature feature = new Feature(Feature.FeatureType.NUMBER, num);
-            addFeature(pc.restrict(funcPc), feature);
         }
         if (collectUsage) {
             assignUsage(pc, MacroUsage.CONST);
@@ -160,49 +171,52 @@ public class ASTVisitor extends Visitor {
 
     /** Visit FunctionDefinition */
     public ASTVisitor visitFunctionDefinition(GNode n, PresenceConditionManager.PresenceCondition pc) {
-        Collection<Node> fns =
-            NodeUtilities.selectNodes(pc, n,
+        if (extractFeature) {
+            Collection<Node> fns =
+              NodeUtilities.selectNodes(pc, n,
                 "FunctionDefinition.FunctionPrototype.*.FunctionDeclarator.SimpleDeclarator.Text")
-            .collect();
-        fns.addAll(NodeUtilities.selectNodes(pc, n,
-            "FunctionDefinition.*.OldFunctionDeclarator.IdentifierDeclarator.*.ParenIdentifierDeclarator.SimpleDeclarator.Text")
-            .collect());
-        String funcName = "";
-        String src = "";
-        assert fns.size() == 1;
-        for (Node fn: fns) {
-            funcName= fn.getTokenText();
-            src = relativePath(fn.getLocation().file, this.workdir);
-        }
-        FeatureManager.store();
-        lsymtab = new CParsingContext.SymbolTable();
-        funcPc = pc;
-        visit(n, pc);
-        FeatureManager funcFeatures = FeatureManager.current();
-        FeatureManager.load();
-        if (!funcFeatures.isEmpty()) {
-            CParsingContext.Entry sym = symtab.map.get(funcName);
-            int argCount = -1;
-            if (sym != null && sym.signature != null) {
-                argCount = sym.signature.args.length;
+                .collect();
+            fns.addAll(NodeUtilities.selectNodes(pc, n,
+              "FunctionDefinition.FunctionPrototype|FunctionOldPrototype.OldFunctionDeclarator.IdentifierDeclarator.*.ParenIdentifierDeclarator.SimpleDeclarator.Text")
+              .collect());
+            String funcName = "";
+            String src = "";
+            assert fns.size() == 1;
+            for (Node fn : fns) {
+                funcName = fn.getTokenText();
+                src = relativePath(fn.getLocation().file, this.workdir);
             }
-            Feature.FunctionFeatureValue featureValue = new Feature.FunctionFeatureValue(funcName, src, argCount, funcFeatures);
-            Feature feature = new Feature(Feature.FeatureType.FUNCTION, featureValue);
-            addFeature(pc, feature);
-            FeatureManager.funcs.put(funcName, featureValue);
+            FeatureManager.store();
+            lsymtab = new CParsingContext.SymbolTable();
+            funcPc = pc;
+            visit(n, pc);
+            FeatureManager funcFeatures = FeatureManager.current();
+            FeatureManager.load();
+            if (!funcFeatures.isEmpty()) {
+                CParsingContext.Entry sym = symtab.map.get(funcName);
+                int argCount = -1;
+                if (sym != null && sym.signature != null) {
+                    argCount = sym.signature.args.length;
+                }
+                Feature.FunctionFeatureValue featureValue = new Feature.FunctionFeatureValue(funcName, src, argCount, funcFeatures);
+                Feature feature = new Feature(Feature.FeatureType.FUNCTION, featureValue);
+                addFeature(pc, feature);
+                FeatureManager.funcs.put(funcName, featureValue);
+            }
+            // exit function scope, clear local symbol table
+            lsymtab = null;
+            funcPc = one;
         }
-        // exit function scope, clear local symbol table
-        lsymtab = null;
-        funcPc = one;
         if (collectUsage) {
             assignUsage(pc, MacroUsage.FULL_FUNC);
+            visit(n, pc);
         }
         return this;
     }
 
     /** Visit SimpleDeclarator to retrieve local declaration of symbols */
     public ASTVisitor visitSimpleDeclarator(GNode n, PresenceConditionManager.PresenceCondition pc) {
-        if (inFunction()) {
+        if (inFunction() && extractFeature) {
             String ident = NodeUtilities.expandText(n, pc, null);
             lsymtab.add(ident, false, pc.restrict(funcPc), null, null, n.getLocation());
         }
@@ -211,39 +225,43 @@ public class ASTVisitor extends Visitor {
 
     /** Visit identifier reference to extract refered global variables */
     public ASTVisitor visitPrimaryIdentifier(GNode n, PresenceConditionManager.PresenceCondition pc) {
-        String ident = NodeUtilities.expandText(n, pc, null);
-        if (lsymtab != null && !lsymtab.map.containsKey(ident)) {
-            Feature.GVRefFeatureValue featureValue;
-            // the function refers to a global variable
-            CParsingContext.Entry sym = symtab.map.get(ident);
-            if (sym != null && sym.getSymType().equals(CParsingContext.SymType.VARIABLE)) {
-                featureValue = new Feature.GVRefFeatureValue(ident, sym.location.file);
-            } else {
-                featureValue = new Feature.GVRefFeatureValue(ident, "");
+        if (extractFeature) {
+            String ident = NodeUtilities.expandText(n, pc, null);
+            if (lsymtab != null && !lsymtab.map.containsKey(ident)) {
+                Feature.GVRefFeatureValue featureValue;
+                // the function refers to a global variable
+                CParsingContext.Entry sym = symtab.map.get(ident);
+                if (sym != null && sym.getSymType().equals(CParsingContext.SymType.VARIABLE)) {
+                    featureValue = new Feature.GVRefFeatureValue(ident, sym.location.file);
+                    Feature feature = new Feature(Feature.FeatureType.GVREF, featureValue);
+                    addFeature(pc.restrict(funcPc), feature);
+                } else {
+//                featureValue = new Feature.GVRefFeatureValue(ident, "");
+                }
             }
-            Feature feature = new Feature(Feature.FeatureType.GVREF, featureValue);
-            addFeature(pc.restrict(funcPc), feature);
         }
         return this;
     }
 
     /** Visit StringLiteralList and extract String Features */
     public ASTVisitor visitStringLiteralList(GNode n, PresenceConditionManager.PresenceCondition pc) {
-        PcMap<Node> pcMap = NodeUtilities.selectNodes(pc.restrict(funcPc), n, "*.Text");
-        Set<Map.Entry<PresenceConditionManager.PresenceCondition, Collection<Node>>> entries = pcMap.entries();
-        if (entries.size() == 1) {
-            for (Map.Entry<PresenceConditionManager.PresenceCondition, Collection<Node>> entry: entries) {
-                StringBuilder sb = new StringBuilder();
-                entry.getValue().forEach(tn -> sb.append(Utilities.unescape_perl_string(tn.getTokenText())));
-                Feature feature = new Feature(Feature.FeatureType.STRING,sb.toString());
-                addFeature(entry.getKey(), feature);
-            }
-        } else if (entries.size() > 1) {
-            for (Map.Entry<PresenceConditionManager.PresenceCondition, Collection<Node>> entry: entries) {
-                for (Node tn : entry.getValue()) {
-                    String s = Utilities.unescape_perl_string(tn.getTokenText());
-                    Feature feature = new Feature(Feature.FeatureType.STRING, s);
+        if (extractFeature) {
+            PcMap<Node> pcMap = NodeUtilities.selectNodes(pc.restrict(funcPc), n, "*.Text");
+            Set<Map.Entry<PresenceConditionManager.PresenceCondition, Collection<Node>>> entries = pcMap.entries();
+            if (entries.size() == 1) {
+                for (Map.Entry<PresenceConditionManager.PresenceCondition, Collection<Node>> entry : entries) {
+                    StringBuilder sb = new StringBuilder();
+                    entry.getValue().forEach(tn -> sb.append(Utilities.unescape_perl_string(tn.getTokenText())));
+                    Feature feature = new Feature(Feature.FeatureType.STRING, sb.toString());
                     addFeature(entry.getKey(), feature);
+                }
+            } else if (entries.size() > 1) {
+                for (Map.Entry<PresenceConditionManager.PresenceCondition, Collection<Node>> entry : entries) {
+                    for (Node tn : entry.getValue()) {
+                        String s = Utilities.unescape_perl_string(tn.getTokenText());
+                        Feature feature = new Feature(Feature.FeatureType.STRING, s);
+                        addFeature(entry.getKey(), feature);
+                    }
                 }
             }
         }
@@ -255,30 +273,49 @@ public class ASTVisitor extends Visitor {
 
     /** Visit function call statement to get FUNCCALL feature */
     public ASTVisitor visitFunctionCall(GNode n, PresenceConditionManager.PresenceCondition pc) {
-        Collection<NodeUtilities.PcEntry<Node>> pcNodes =
-          NodeUtilities.selectNodesInOrder(pc, n, "FunctionCall.PrimaryIdentifier");
-        assert pcNodes.size() <= 1;
-        if (pcNodes.size() == 1) {
-            Node primIdent = pcNodes.iterator().next().getValue();
-            String funcName = NodeUtilities.expandText(primIdent, pc, null);
-            CParsingContext.Entry sym = symtab.map.get(funcName);
-            Feature.FuncCallFeatureValue featureValue;
-            if (sym != null) {
-                featureValue = new Feature.FuncCallFeatureValue(funcName, sym.location.file);
+        if (extractFeature) {
+            Collection<NodeUtilities.PcEntry<Node>> pcNodes =
+              NodeUtilities.selectNodesInOrder(pc, n, "FunctionCall.PrimaryIdentifier");
+            assert pcNodes.size() <= 1;
+            if (pcNodes.size() == 1) {
+                Node primIdent = pcNodes.iterator().next().getValue();
+                String funcName = NodeUtilities.expandText(primIdent, pc, null);
+                CParsingContext.Entry sym = symtab.map.get(funcName);
+                Feature.FuncCallFeatureValue featureValue;
+                if (sym != null) {
+                    featureValue = new Feature.FuncCallFeatureValue(funcName, sym.location.file);
+                } else {
+                    featureValue = new Feature.FuncCallFeatureValue(funcName, "");
+                }
+                Feature feature = new Feature(Feature.FeatureType.FUNCCALL, featureValue);
+                addFeature(pc.restrict(funcPc), feature);
             } else {
-                featureValue = new Feature.FuncCallFeatureValue(funcName, "");
+                // TODO handle indirect call (FunctionCall.IndirectSelection)
             }
-            Feature feature = new Feature(Feature.FeatureType.FUNCCALL, featureValue);
-            addFeature(pc.restrict(funcPc), feature);
-        } else {
-            // TODO handle indirect call (FunctionCall.IndirectSelection)
+            // visit children
+            pcNodes = NodeUtilities.selectNodesInOrder(pc, n, "FunctionCall.ExpressionList");
+            assert pcNodes.size() == 1;
+            if (pcNodes.size() == 1) {
+                GNode exprList = (GNode) pcNodes.iterator().next().getValue();
+                visit(exprList, pc);
+            }
         }
-        // visit children
-        pcNodes = NodeUtilities.selectNodesInOrder(pc, n, "FunctionCall.ExpressionList");
-        assert pcNodes.size() == 1;
-        if (pcNodes.size() == 1) {
-            GNode exprList = (GNode) pcNodes.iterator().next().getValue();
-            visit(exprList, pc);
+        return this;
+    }
+
+    /**
+     * Visit StructOrUnionSpecifier to process struct or union definition
+     * @param n
+     * @param pc
+     * @return
+     */
+    public ASTVisitor visitStructOrUnionSpecifier(GNode n, PresenceConditionManager.PresenceCondition pc) {
+        if (collectUsage) {
+            assignUsage(pc, MacroUsage.TYPE);
+            PcMap<Node> selectRes = NodeUtilities.selectNodes(pc, n, "*.StructDeclaration");
+            for (PresenceConditionManager.PresenceCondition structPc: selectRes.keySet()) {
+                assignUsage(structPc, MacroUsage.TYPE);
+            }
         }
         return this;
     }
